@@ -1,10 +1,12 @@
 import type {
+    EditUiSyncPayload,
     ExtensionMessage,
     ExtensionResponse,
     HighlightTargetsPayload,
     SearchStartPayload,
     SearchStartResponseData,
 } from '../shared/types/messages';
+import { pinLogicAreaMainWorld } from '../features/edit/background/pinLogicAreaMainWorld';
 import { queryFrameData } from '../features/search/background/queryFrameData';
 import { resolveTargetFrame } from '../features/search/background/resolveTargetFrame';
 
@@ -269,6 +271,41 @@ chrome.runtime.onMessage.addListener(
                 const res = await sendToFrame(tabId, target.frameId, message);
                 sendResponse(res);
             })();
+            return true;
+        }
+
+        if (message.action === 'EDIT_START' || message.action === 'EDIT_STOP') {
+            (async () => {
+                const target = await resolveTargetFrame(tabId);
+                if (!target) {
+                    sendResponse({
+                        success: false,
+                        error: 'eventSetting 화면이 아닙니다.',
+                    } satisfies ExtensionResponse);
+                    return;
+                }
+                if (message.action === 'EDIT_START') {
+                    const pinRes = await pinLogicAreaMainWorld(tabId, target.frameId);
+                    if (!pinRes.ok) {
+                        sendResponse({
+                            success: false,
+                            error: pinRes.error,
+                        } satisfies ExtensionResponse);
+                        return;
+                    }
+                }
+                const res = await sendToFrame(tabId, target.frameId, message);
+                sendResponse(res);
+            })();
+            return true;
+        }
+
+        if (message.action === 'EDIT_NOTIFY_INACTIVE') {
+            void safeSendToTopFrame(tabId, {
+                action: 'EDIT_UI_SYNC',
+                payload: { logicEditActive: false } satisfies EditUiSyncPayload,
+            });
+            sendResponse({ success: true } satisfies ExtensionResponse);
             return true;
         }
     },

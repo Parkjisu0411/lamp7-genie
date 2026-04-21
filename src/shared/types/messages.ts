@@ -9,7 +9,11 @@ export type MessageAction =
     | 'SEARCH_CLEAR'
     | 'HIGHLIGHT_TARGETS'
     | 'CLIPBOARD_COPY'
-    | 'CLIPBOARD_PASTE';
+    | 'CLIPBOARD_PASTE'
+    | 'EDIT_START'
+    | 'EDIT_STOP'
+    | 'EDIT_NOTIFY_INACTIVE'
+    | 'EDIT_UI_SYNC';
 
 export interface ExtensionMessage {
     action: MessageAction;
@@ -88,4 +92,9 @@ export interface TargetAvailabilityPayload {
 export interface SearchStartResponseData {
     count: number;
     matches: SearchMatch[];
+}
+
+/** top frame 편집 탭 등 — iframe에서 Esc 등으로 편집 종료 시 동기화 */
+export interface EditUiSyncPayload {
+    logicEditActive: boolean;
 }

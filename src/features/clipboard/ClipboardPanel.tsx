@@ -1,51 +1,73 @@
-import { ClipboardPaste, Copy, Play, Square } from 'lucide-react';
+import { Play, Square } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import type {
+    EditUiSyncPayload,
+    ExtensionMessage,
+    ExtensionResponse,
+} from '../../shared/types/messages';
 
-export function ClipboardPanel() {
+interface ClipboardPanelProps {
+    eventSettingAvailable: boolean;
+}
+
+export function ClipboardPanel({ eventSettingAvailable }: ClipboardPanelProps) {
     const [isSelecting, setIsSelecting] = useState(false);
-    const [selectedText, setSelectedText] = useState('');
-    const [copied, setCopied] = useState(false);
+    const [lastError, setLastError] = useState<string | null>(null);
 
     useEffect(() => {
-        if (!isSelecting) return;
-
-        const handleMouseUp = () => {
-            const selection = window.getSelection();
-            const text = selection?.toString().trim();
-            if (text) setSelectedText(text);
+        const onMsg = (msg: ExtensionMessage) => {
+            if (msg.action === 'EDIT_UI_SYNC') {
+                const p = msg.payload as EditUiSyncPayload | undefined;
+                if (p && typeof p.logicEditActive === 'boolean') {
+                    setIsSelecting(p.logicEditActive);
+                }
+            }
         };
-
-        document.addEventListener('mouseup', handleMouseUp);
-        return () => document.removeEventListener('mouseup', handleMouseUp);
-    }, [isSelecting]);
+        chrome.runtime.onMessage.addListener(onMsg);
+        return () => chrome.runtime.onMessage.removeListener(onMsg);
+    }, []);
 
     const handleStartSelection = () => {
-        setIsSelecting(true);
-        setSelectedText('');
+        setLastError(null);
+        chrome.runtime.sendMessage(
+            { action: 'EDIT_START' } satisfies ExtensionMessage,
+            (res: ExtensionResponse | undefined) => {
+                if (chrome.runtime.lastError) {
+                    setLastError(chrome.runtime.lastError.message ?? '통신 오류');
+                    return;
+                }
+                if (res?.success) {
+                    setIsSelecting(true);
+                    return;
+                }
+                setLastError(
+                    typeof res?.error === 'string' ? res.error : '선택 모드를 켤 수 없습니다.',
+                );
+            },
+        );
     };
 
     const handleEndSelection = () => {
-        setIsSelecting(false);
-    };
-
-    const handleCopy = async () => {
-        if (!selectedText) return;
-        await navigator.clipboard.writeText(selectedText);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
-
-    const handlePaste = async () => {
-        const text = await navigator.clipboard.readText();
-        setSelectedText(text);
+        setLastError(null);
+        chrome.runtime.sendMessage(
+            { action: 'EDIT_STOP' } satisfies ExtensionMessage,
+            () => {
+                if (chrome.runtime.lastError) {
+                    setLastError(chrome.runtime.lastError.message ?? '통신 오류');
+                    return;
+                }
+                setIsSelecting(false);
+            },
+        );
     };
 
     return (
         <div className="panel">
             <div className="panel__row">
                 <button
+                    type="button"
                     onClick={handleStartSelection}
-                    disabled={isSelecting}
+                    disabled={!eventSettingAvailable || isSelecting}
                     className="panel__btn panel__btn--success"
                     style={{ flex: 1 }}
                 >
@@ -53,8 +75,9 @@ export function ClipboardPanel() {
                     선택 시작
                 </button>
                 <button
+                    type="button"
                     onClick={handleEndSelection}
-                    disabled={!isSelecting}
+                    disabled={!eventSettingAvailable || !isSelecting}
                     className="panel__btn panel__btn--danger"
                     style={{ flex: 1 }}
                 >
@@ -62,45 +85,14 @@ export function ClipboardPanel() {
                     선택 종료
                 </button>
             </div>
-
             <div className="panel__notice">
-                {isSelecting
-                    ? '선택 모드 활성화됨. 텍스트를 드래그하여 선택하세요.'
-                    : '선택 시작 버튼을 누른 후 페이지에서 텍스트를 드래그하세요.'}
-            </div>
-
-            <div>
-                <p className="panel__selection-label">선택된 텍스트</p>
-                <div className="panel__selection-box">
-                    {isSelecting && !selectedText && (
-                        <div className="panel__selecting-indicator">선택 중...</div>
-                    )}
-                    {selectedText ? (
-                        <div className="panel__selection-item">{selectedText}</div>
-                    ) : (
-                        !isSelecting && (
-                            <p className="panel__hint" style={{ padding: '8px 0' }}>
-                                선택된 텍스트가 없습니다
-                            </p>
-                        )
-                    )}
-                </div>
-            </div>
-
-            <div className="panel__row">
-                <button
-                    onClick={handleCopy}
-                    disabled={!selectedText}
-                    className="panel__btn panel__btn--primary"
-                    style={{ flex: 1 }}
-                >
-                    <Copy size={14} />
-                    {copied ? '복사됨 ✓' : '복사'}
-                </button>
-                <button onClick={handlePaste} className="panel__btn" style={{ flex: 1 }}>
-                    <ClipboardPaste size={14} />
-                    붙여넣기
-                </button>
+                {lastError ? (
+                    <span className="panel__hint panel__hint--error">{lastError}</span>
+                ) : isSelecting ? (
+                    '페이지 왼쪽 seq 번호 열에 선택 핸들이 표시됩니다. 클릭·Shift+클릭·드래그로 여러 줄을 고를 수 있습니다. Esc 또는 선택 종료 시 해제됩니다.'
+                ) : (
+                    '선택 시작을 누르면 eventSetting 화면의 seq 열에 선택 핸들이 나타납니다.'
+                )}
             </div>
         </div>
     );

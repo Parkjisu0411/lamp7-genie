@@ -16,3 +16,14 @@ export const TARGET_FRAME_PATH = '/screens/event/eventSetting';
 // 빈 문자열이면 SEARCH_START에서 window 전역 덤프(dumpFrameGlobals)를 대신 수행해
 // 후보를 찾을 수 있게 한다.
 export const MEMORY_OBJECT_PATH = 'LogicEditor';
+
+/** 로직 목록 편집(다중 선택) — content script에서 seq/행에 부여 */
+export const EDIT_STYLE_ID = 'genie-edit-style';
+export const EDIT_WRAP_ACTIVE_CLASS = 'genie-edit-wrap--active';
+export const EDIT_SELECTED_CLASS = 'genie-edit--selected';
+
+/**
+ * MAIN world에서 $.divTab('.logic_area') 등으로 찾은 편집용 영역을 표시.
+ * EDIT_STOP 시 제거한다.
+ */
+export const DATA_ATTR_LOGIC_AREA_PIN = 'data-genie-logic-area-pin';

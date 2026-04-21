@@ -7,6 +7,7 @@ import type {
     SearchNavigatePayload,
     TargetAvailabilityPayload,
 } from '../shared/types/messages';
+import { clearLogicAreaPin, mountEdit, unmountEdit } from '../features/edit';
 import {
     activateHighlightById,
     applyHighlights,
@@ -123,6 +124,24 @@ chrome.runtime.onMessage.addListener(
 
         if (message.action === 'SEARCH_CLEAR') {
             clearHighlights();
+            sendResponse({ success: true } satisfies ExtensionResponse);
+            return true;
+        }
+
+        if (message.action === 'EDIT_START') {
+            const ok = mountEdit();
+            if (!ok) clearLogicAreaPin();
+            sendResponse({
+                success: ok,
+                error: ok
+                    ? undefined
+                    : 'seq 편집 영역(표식 근처의 .logic_seq_area / ul > li)을 찾을 수 없습니다.',
+            } satisfies ExtensionResponse);
+            return true;
+        }
+
+        if (message.action === 'EDIT_STOP') {
+            unmountEdit();
             sendResponse({ success: true } satisfies ExtensionResponse);
             return true;
         }

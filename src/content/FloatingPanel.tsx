@@ -5,7 +5,7 @@ import { ClipboardPanel } from '../features/clipboard';
 import { SearchPanel } from '../features/search';
 import { getPanelOffsetY, setPanelOffsetY } from './storage';
 
-type Tab = 'search' | 'copy';
+type Tab = 'search' | 'edit';
 
 /** 기본 translateY(0) 기준 허용 범위 — 뷰포트 높이에 맞춤 */
 function clampPanelOffsetY(y: number): number {
@@ -259,10 +259,10 @@ export function FloatingPanel({
                             </button>
                             <button
                                 type="button"
-                                onClick={() => setActiveTab('copy')}
-                                className={`genie-tab ${activeTab === 'copy' ? 'genie-tab--active' : ''}`}
+                                onClick={() => setActiveTab('edit')}
+                                className={`genie-tab ${activeTab === 'edit' ? 'genie-tab--active' : ''}`}
                             >
-                                복사
+                                편집
                             </button>
                         </div>
 
@@ -285,7 +285,9 @@ export function FloatingPanel({
                                 {activeTab === 'search' ? (
                                     <SearchPanel focusSignal={focusSearchSignal} />
                                 ) : (
-                                    <ClipboardPanel />
+                                    <ClipboardPanel
+                                        eventSettingAvailable={eventSettingAvailable}
+                                    />
                                 )}
                             </div>
                         </div>
