@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ClipboardPanel } from '../features/clipboard';
 import { SearchPanel } from '../features/search';
 import { getPanelOffsetY, setPanelOffsetY } from './storage';
@@ -35,6 +35,11 @@ export function FloatingPanel({
     const [offsetY, setOffsetY] = useState(0);
     const offsetYRef = useRef(0);
 
+    /** 본문 래퍼 높이만 CSS transition — ResizeObserver로 실제 콘텐츠 높이만 반영 (내부 FLIP 스케일 없음) */
+    const panelBodyContentRef = useRef<HTMLDivElement>(null);
+    const [bodyClipHeightPx, setBodyClipHeightPx] = useState<number | null>(null);
+    const [bodyHeightTransitionOn, setBodyHeightTransitionOn] = useState(false);
+
     useEffect(() => {
         offsetYRef.current = offsetY;
     }, [offsetY]);
@@ -58,6 +63,45 @@ export function FloatingPanel({
             setActiveTab('search');
         });
     }, [focusSearchSignal, eventSettingAvailable]);
+
+    useEffect(() => {
+        if (!effectiveExpanded) {
+            queueMicrotask(() => {
+                setBodyClipHeightPx(null);
+                setBodyHeightTransitionOn(false);
+            });
+        }
+    }, [effectiveExpanded]);
+
+    useLayoutEffect(() => {
+        if (!effectiveExpanded) return;
+        const el = panelBodyContentRef.current;
+        if (!el) return;
+
+        const measure = () => {
+            const h = Math.ceil(el.getBoundingClientRect().height);
+            setBodyClipHeightPx(h);
+        };
+
+        const ro = new ResizeObserver(() => {
+            measure();
+        });
+        ro.observe(el);
+        measure();
+
+        let raf2 = 0;
+        const raf1 = requestAnimationFrame(() => {
+            raf2 = requestAnimationFrame(() => {
+                setBodyHeightTransitionOn(true);
+            });
+        });
+
+        return () => {
+            cancelAnimationFrame(raf1);
+            if (raf2) cancelAnimationFrame(raf2);
+            ro.disconnect();
+        };
+    }, [effectiveExpanded, activeTab]);
 
     /**
      * 세로 드래그 공통.
@@ -207,12 +251,28 @@ export function FloatingPanel({
                             </button>
                         </div>
 
-                        <div className="genie-panel__content">
-                            {activeTab === 'search' ? (
-                                <SearchPanel focusSignal={focusSearchSignal} />
-                            ) : (
-                                <ClipboardPanel />
-                            )}
+                        <div
+                            className="genie-panel__body-clip"
+                            style={{
+                                height:
+                                    bodyClipHeightPx === null
+                                        ? 'auto'
+                                        : `${bodyClipHeightPx}px`,
+                                transition: bodyHeightTransitionOn
+                                    ? 'height 0.28s cubic-bezier(0.4, 0, 0.2, 1)'
+                                    : 'none',
+                            }}
+                        >
+                            <div
+                                ref={panelBodyContentRef}
+                                className="genie-panel__content"
+                            >
+                                {activeTab === 'search' ? (
+                                    <SearchPanel focusSignal={focusSearchSignal} />
+                                ) : (
+                                    <ClipboardPanel />
+                                )}
+                            </div>
                         </div>
                     </motion.div>
                 )}
