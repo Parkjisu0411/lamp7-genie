@@ -84,6 +84,52 @@ export async function queryFrameData(
             const lowerQ = rawQ.toLowerCase();
             const strippedQ = lowerQ.replace(/_/g, '');
 
+            // transaction.id: Logic 쪽에는 보통 backStr만 있고 verb는 없을 수 있다.
+            // 개발자는 코드에 나온 `<verb>` + `backStr` 형태를 검색어로 넣으므로,
+            // 접두어 제거는 검색어 쪽에만 적용한다 (ID에서 verb를 떼는 가정은 하지 않음).
+            // 긴 접두어부터 검사(insertrev → insert). exact "get"/"insert" 등은 잘리지 않음.
+            const TRX_ID_PREFIXES_DESC: readonly string[] = [
+                'insertrev',
+                'sessionvariable',
+                'modify',
+                'remove',
+                'delete',
+                'update',
+                'insert',
+                'call',
+                'mail',
+                'save',
+                'get',
+                // Rest API 타입 등 (런타임 상수 이름은 다를 수 있으나 소문자 strip 기준)
+                'restapi',
+            ];
+
+            const tailAfterTrxPrefix = (lowerNoUnderscore: string): string => {
+                for (let i = 0; i < TRX_ID_PREFIXES_DESC.length; i++) {
+                    const p = TRX_ID_PREFIXES_DESC[i];
+                    if (lowerNoUnderscore.startsWith(p) && lowerNoUnderscore.length > p.length) {
+                        return lowerNoUnderscore.slice(p.length);
+                    }
+                }
+                return lowerNoUnderscore;
+            };
+
+            const transactionIdMatches = (val: unknown): boolean => {
+                if (typeof val !== 'string' || val.length === 0) return false;
+                const targetBase = val.toLowerCase().replace(/_/g, '');
+                if (strippedQ.length === 0) return false;
+                // 1) 그대로 부분 문자열(기존 동작: Tran100191150 검색 등)
+                if (targetBase.indexOf(strippedQ) !== -1) return true;
+                // 2) Logic ID는 backStr만 저장된 경우가 많고, 검색어는 modifyTran… 처럼 verb+backStr인 경우
+                //    쿼리 앞에서만 한 번 verb 제거. tailQ에 indexOf 하면 getfoo→foo 가 modifyfoobar에 걸리므로
+                //    전체·접두 일치만 허용.
+                const tailQ = tailAfterTrxPrefix(strippedQ);
+                if (tailQ !== strippedQ && tailQ.length > 0) {
+                    if (targetBase === tailQ || targetBase.startsWith(tailQ)) return true;
+                }
+                return false;
+            };
+
             // MAIN world에서 SearchMatchField 타입 참조가 불가하므로 string으로 다룸.
             // 경계에서 SearchMatch[]로 캐스팅.
             type Match = {
@@ -146,7 +192,7 @@ export async function queryFrameData(
             };
 
             // 필드 값이 쿼리를 포함하는지 검사.
-            // stripUnderscore: transaction.id처럼 코드에선 '_'가 제거된 형태로 노출되는 필드에 한해 사용.
+            // stripUnderscore: '_'가 제거된 형태로 노출되는 필드에 한해 사용 (transactionId는 별도 로직).
             const contains = (val: unknown, stripUnderscore: boolean): boolean => {
                 if (typeof val !== 'string' || val.length === 0) return false;
                 const target = stripUnderscore
@@ -185,7 +231,7 @@ export async function queryFrameData(
                 if (kind === 'transaction') {
                     const tr = logic.transaction;
                     if (!tr) return null;
-                    if (contains(tr.id, true)) {
+                    if (transactionIdMatches(tr.id)) {
                         return { field: 'transactionId', value: String(tr.id ?? '') };
                     }
                     const inputs = Array.isArray(tr.inputParams) ? tr.inputParams : [];

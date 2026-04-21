@@ -355,7 +355,6 @@
     transition: background 0.1s;
     color: #374151;
     line-height: 1.4;
-    word-break: break-word;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -381,8 +380,12 @@
 }
 
 .panel__result-text {
+    display: block;
     flex: 1;
     min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
 .panel__result-item:last-child {

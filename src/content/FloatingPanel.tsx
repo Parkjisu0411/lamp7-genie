@@ -56,6 +56,21 @@ export function FloatingPanel({
 
     const effectiveExpanded = eventSettingAvailable && isExpanded;
 
+    /** 패널이 펼쳐진 동안, 포커스가 지니 UI 안일 때 Escape 로 미니(접기) */
+    useEffect(() => {
+        if (!isVisible || !effectiveExpanded) return;
+        const onKeyDown = (ev: KeyboardEvent) => {
+            if (ev.key !== 'Escape') return;
+            const root = document.getElementById('lamp7-genie-root');
+            if (!root?.contains(ev.target as Node)) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            setIsExpanded(false);
+        };
+        document.addEventListener('keydown', onKeyDown, true);
+        return () => document.removeEventListener('keydown', onKeyDown, true);
+    }, [isVisible, effectiveExpanded]);
+
     useEffect(() => {
         if (focusSearchSignal <= 0 || !eventSettingAvailable) return;
         queueMicrotask(() => {
