@@ -16,6 +16,7 @@
     "scripting",
     "clipboardRead",
     "clipboardWrite",
+    "storage",
     "webNavigation"
   ],
   "host_permissions": [

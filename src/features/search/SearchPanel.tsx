@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { getSearchFilters, setSearchFilters } from '../../content/storage';
 import { KIND_ICON } from '../../shared/icons';
 import type {
     SearchMatch,
@@ -7,7 +8,7 @@ import type {
     SearchStartResponseData,
 } from '../../shared/types/messages';
 
-type FilterKey = 'event' | 'transaction' | 'condition' | 'variable';
+export type FilterKey = 'event' | 'transaction' | 'condition' | 'variable';
 
 const FILTER_LABELS: Record<FilterKey, string> = {
     event: '이벤트',
@@ -82,6 +83,22 @@ export function SearchPanel({ focusSignal }: SearchPanelProps = {}) {
         condition: true,
         variable: true,
     });
+    const [filtersHydrated, setFiltersHydrated] = useState(false);
+
+    useEffect(() => {
+        void getSearchFilters().then((stored) => {
+            setFilters(stored);
+            setFiltersHydrated(true);
+        });
+    }, []);
+
+    useEffect(() => {
+        if (!filtersHydrated) return;
+        const t = window.setTimeout(() => {
+            void setSearchFilters(filters);
+        }, 250);
+        return () => window.clearTimeout(t);
+    }, [filters, filtersHydrated]);
 
     const refocusInput = () => {
         // 비동기 메시지 응답 후 React 리렌더가 끝난 뒤 포커스 복구
@@ -142,7 +159,9 @@ export function SearchPanel({ focusSignal }: SearchPanelProps = {}) {
     // 초기 마운트 시점에는 lastSearchedQuery가 비어있어 스킵됨.
     useEffect(() => {
         if (!lastSearchedQuery) return;
-        void runSearch(lastSearchedQuery, filters);
+        queueMicrotask(() => {
+            void runSearch(lastSearchedQuery, filters);
+        });
         // runSearch는 매 렌더마다 재생성되지만, filters 변경 시점의 최신 state를 직접 전달하므로
         // 의존성에 포함할 필요가 없음.
         // eslint-disable-next-line react-hooks/exhaustive-deps

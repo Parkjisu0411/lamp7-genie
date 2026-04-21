@@ -10,6 +10,19 @@
     color: #1a1a1a;
 }
 
+/* 미니 버튼·패널 공통 세로 오프셋(드래그). transform은 FloatingPanel에서 inline 적용 */
+.genie-float-stack {
+    position: fixed;
+    top: 0;
+    right: 0;
+    z-index: 2147483647;
+    pointer-events: none;
+}
+
+.genie-float-stack > * {
+    pointer-events: auto;
+}
+
 /* #lamp7-genie-root *,
 #lamp7-genie-root *::before,
 #lamp7-genie-root *::after {
@@ -39,6 +52,16 @@
 
 .genie-mini-btn:hover {
     background: #3b82f6;
+}
+
+.genie-mini-btn--draggable {
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+
+.genie-mini-btn--draggable:active {
+    cursor: grabbing;
 }
 
 /* 패널 */
@@ -85,6 +108,16 @@
 
 .genie-panel__close:hover {
     background: rgba(255, 255, 255, 0.2);
+}
+
+.genie-panel__header--draggable {
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+}
+
+.genie-panel__header--draggable:active {
+    cursor: grabbing;
 }
 
 /* 탭 버튼 영역 */
