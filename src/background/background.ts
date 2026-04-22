@@ -44,7 +44,7 @@ async function syncTabTargetState(tabId: number) {
         payload: { available },
     });
     if (!available) {
-        await safeSendToTopFrame(tabId, { action: 'HIDE_PANEL' });
+        await dismissPanelAndStopEdit(tabId);
     }
 }
 
@@ -153,6 +153,15 @@ function sendToFrame(
             },
         );
     });
+}
+
+/** 선택·편집 세션 정리(가능한 경우) + 플로팅 패널 숨김 */
+async function dismissPanelAndStopEdit(tabId: number): Promise<void> {
+    const target = await resolveTargetFrame(tabId);
+    if (target) {
+        await sendToFrame(tabId, target.frameId, { action: 'EDIT_STOP' });
+    }
+    await safeSendToTopFrame(tabId, { action: 'HIDE_PANEL' });
 }
 
 // ────────────────────────────────────────────────────────────
@@ -274,6 +283,14 @@ chrome.runtime.onMessage.addListener(
             return true;
         }
 
+        if (message.action === 'GENIE_DISMISS') {
+            (async () => {
+                await dismissPanelAndStopEdit(tabId);
+                sendResponse({ success: true } satisfies ExtensionResponse);
+            })();
+            return true;
+        }
+
         if (message.action === 'EDIT_START' || message.action === 'EDIT_STOP') {
             (async () => {
                 const target = await resolveTargetFrame(tabId);
@@ -286,7 +303,7 @@ chrome.runtime.onMessage.addListener(
                 }
                 if (message.action === 'EDIT_START') {
                     const pinRes = await pinLogicAreaMainWorld(tabId, target.frameId);
-                    if (!pinRes.ok) {
+                    if (pinRes.ok === false) {
                         sendResponse({
                             success: false,
                             error: pinRes.error,

@@ -13,7 +13,9 @@ export type MessageAction =
     | 'EDIT_START'
     | 'EDIT_STOP'
     | 'EDIT_NOTIFY_INACTIVE'
-    | 'EDIT_UI_SYNC';
+    | 'EDIT_UI_SYNC'
+    /** Esc·패널 닫기: eventSetting iframe EDIT_STOP + top HIDE */
+    | 'GENIE_DISMISS';
 
 export interface ExtensionMessage {
     action: MessageAction;

@@ -79,6 +79,12 @@ if (isTopFrame) {
         }
         if (message.action === 'TOGGLE_PANEL') {
             isVisible = !isVisible;
+            if (!isVisible) {
+                void chrome.runtime.sendMessage(
+                    { action: 'EDIT_STOP' } satisfies ExtensionMessage,
+                    () => void chrome.runtime.lastError,
+                );
+            }
             render();
             return;
         }
@@ -141,9 +147,13 @@ chrome.runtime.onMessage.addListener(
         }
 
         if (message.action === 'EDIT_STOP') {
-            unmountEdit();
+            unmountEdit({ notifyInactive: true });
             sendResponse({ success: true } satisfies ExtensionResponse);
             return true;
         }
     },
 );
+
+window.addEventListener('pagehide', () => {
+    unmountEdit();
+});

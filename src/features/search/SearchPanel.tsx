@@ -213,7 +213,7 @@ export function SearchPanel({ focusSignal }: SearchPanelProps = {}) {
             }
             return;
         }
-        // Escape 는 FloatingPanel 에서 패널 접기로 처리 (포커스가 지니 UI 안일 때)
+        // Escape 는 FloatingPanel 에서 GENIE_DISMISS(패널 숨김)로 처리 (포커스가 지니 UI 안일 때)
     };
 
     const toggleFilter = (key: FilterKey) => {

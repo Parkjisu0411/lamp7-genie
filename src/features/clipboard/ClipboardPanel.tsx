@@ -89,7 +89,7 @@ export function ClipboardPanel({ eventSettingAvailable }: ClipboardPanelProps) {
                 {lastError ? (
                     <span className="panel__hint panel__hint--error">{lastError}</span>
                 ) : isSelecting ? (
-                    '페이지 왼쪽 seq 번호 열에 선택 핸들이 표시됩니다. 클릭·Shift+클릭·드래그로 여러 줄을 고를 수 있습니다. Esc 또는 선택 종료 시 해제됩니다.'
+                    '페이지 왼쪽 seq 열에서 클릭·Shift+클릭·드래그로 선택합니다. 드래그 경로를 지나는 줄은 선택/비선택이 토글됩니다. Esc·패널 닫기·접기·페이지 이동 시에도 모드가 꺼집니다. 또는 선택 종료를 누르세요.'
                 ) : (
                     '선택 시작을 누르면 eventSetting 화면의 seq 열에 선택 핸들이 나타납니다.'
                 )}

@@ -3,7 +3,8 @@ import { DATA_ATTR_LOGIC_AREA_PIN } from '../../shared/constants';
 /** seq `li`별 안정 키. id 없으면 인덱스(추후 LogicEditor 연동 시 seq 순서 참고용). */
 export function seqItemKey(li: HTMLLIElement, index: number): string {
     const id = li.id?.trim();
-    if (id) return id;
+    /** 동일 id가 여러 행에 있으면 선택 Set이 한 키로만 토글되는 문제 방지 */
+    if (id) return `${id}#__i${index}`;
     return `__genie_seq:${index}`;
 }
 
@@ -40,11 +41,18 @@ function findSeqAreaForLogicArea(logicArea: HTMLElement): HTMLElement | null {
     return null;
 }
 
-function listSeqItems(seqUl: HTMLUListElement): HTMLLIElement[] {
-    const scoped = Array.from(seqUl.querySelectorAll<HTMLLIElement>(':scope > li'));
-    if (scoped.length > 0) return scoped;
-    return Array.from(seqUl.children).filter(
-        (n): n is HTMLLIElement => n instanceof HTMLLIElement && n.tagName === 'LI',
+export function listSeqItems(seqUl: HTMLUListElement): HTMLLIElement[] {
+    const direct = Array.from(seqUl.querySelectorAll<HTMLLIElement>(':scope > li'));
+    if (direct.length === 0) {
+        return Array.from(seqUl.children).filter(
+            (n): n is HTMLLIElement => n instanceof HTMLLIElement && n.tagName === 'LI',
+        );
+    }
+    /** 중첩 목록이면 래퍼 li만 잡히지 않도록, 자식 li가 없는(실제 행) li만 모은다. */
+    const hasNestedLi = direct.some((li) => li.querySelector('li') !== null);
+    if (!hasNestedLi) return direct;
+    return Array.from(seqUl.querySelectorAll<HTMLLIElement>('li')).filter(
+        (li) => li.querySelector('li') === null,
     );
 }
 
@@ -60,6 +68,12 @@ function buildEditDomBundle(
     if (seqItems.length === 0) return null;
 
     return { wrap, seqArea, seqUl, seqItems, logicArea };
+}
+
+/** 호스트가 리렌더하면 기존 li 참조가 끊기므로, 이벤트 핸들러에서 ul 기준으로 다시 채운다. */
+export function resyncEditSeqItems(bundle: EditDomBundle): void {
+    const next = listSeqItems(bundle.seqUl);
+    if (next.length) bundle.seqItems = next;
 }
 
 /** 현재 문서 + 접근 가능한 같은 출처 iframe(중첩). 핀 제거·탐색에 공통 사용 */

@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ClipboardPanel } from '../features/clipboard';
 import { SearchPanel } from '../features/search';
+import type { ExtensionMessage } from '../shared/types/messages';
 import { getPanelOffsetY, setPanelOffsetY } from './storage';
 
 type Tab = 'search' | 'edit';
@@ -40,6 +41,8 @@ export function FloatingPanel({
     const [bodyClipHeightPx, setBodyClipHeightPx] = useState<number | null>(null);
     const [bodyHeightTransitionOn, setBodyHeightTransitionOn] = useState(false);
 
+    const prevExpandedRef = useRef<boolean | null>(null);
+
     useEffect(() => {
         offsetYRef.current = offsetY;
     }, [offsetY]);
@@ -56,7 +59,22 @@ export function FloatingPanel({
 
     const effectiveExpanded = eventSettingAvailable && isExpanded;
 
-    /** 패널이 펼쳐진 동안, 포커스가 지니 UI 안일 때 Escape 로 미니(접기) */
+    /** 미니로 접을 때 seq 선택 모드 정리 (iframe에 EDIT_STOP) */
+    useEffect(() => {
+        if (prevExpandedRef.current === null) {
+            prevExpandedRef.current = effectiveExpanded;
+            return;
+        }
+        if (prevExpandedRef.current && !effectiveExpanded) {
+            void chrome.runtime.sendMessage(
+                { action: 'EDIT_STOP' } satisfies ExtensionMessage,
+                () => void chrome.runtime.lastError,
+            );
+        }
+        prevExpandedRef.current = effectiveExpanded;
+    }, [effectiveExpanded]);
+
+    /** 플로팅이 펼쳐진 동안 Esc: 패널 숨김 + 선택 모드 정리(GENIE_DISMISS) */
     useEffect(() => {
         if (!isVisible || !effectiveExpanded) return;
         const onKeyDown = (ev: KeyboardEvent) => {
@@ -65,7 +83,10 @@ export function FloatingPanel({
             if (!root?.contains(ev.target as Node)) return;
             ev.preventDefault();
             ev.stopPropagation();
-            setIsExpanded(false);
+            void chrome.runtime.sendMessage(
+                { action: 'GENIE_DISMISS' } satisfies ExtensionMessage,
+                () => void chrome.runtime.lastError,
+            );
         };
         document.addEventListener('keydown', onKeyDown, true);
         return () => document.removeEventListener('keydown', onKeyDown, true);
