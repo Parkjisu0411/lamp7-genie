@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import type { NotifyPanel } from '../../content/panelNotice';
 import { getSearchFilters, setSearchFilters } from '../../content/storage';
 import { KIND_ICON } from '../../shared/icons';
 import type {
@@ -67,9 +68,12 @@ interface SearchPanelProps {
     // 외부(단축키 트리거)에서 input 포커스를 요청하는 신호.
     // 값이 바뀔 때마다 input에 포커스하고 기존 텍스트를 전체 선택.
     focusSignal?: number;
+    notify: NotifyPanel;
+    clearNotice: () => void;
+    clearGuide: () => void;
 }
 
-export function SearchPanel({ focusSignal }: SearchPanelProps = {}) {
+export function SearchPanel({ focusSignal, notify, clearNotice, clearGuide }: SearchPanelProps) {
     const inputRef = useRef<HTMLInputElement>(null);
     const [query, setQuery] = useState('');
     const [lastSearchedQuery, setLastSearchedQuery] = useState('');
@@ -119,12 +123,14 @@ export function SearchPanel({ focusSignal }: SearchPanelProps = {}) {
 
     // 패널이 닫히거나 다른 탭으로 전환되어 언마운트될 때 하이라이팅 제거
     useEffect(() => {
+        clearGuide();
         return () => {
             chrome.runtime.sendMessage({ action: 'SEARCH_CLEAR' }).catch(() => {
                 // 패널 닫힘 직후 메시지 채널이 끊어질 수 있음 - 무시
             });
+            clearGuide();
         };
-    }, []);
+    }, [clearGuide]);
 
     const resetSearchState = () => {
         setLastSearchedQuery('');
@@ -138,19 +144,40 @@ export function SearchPanel({ focusSignal }: SearchPanelProps = {}) {
         nextFilters: Record<FilterKey, boolean>,
     ) => {
         if (!nextQuery.trim()) return;
+        clearNotice();
         setIsSearching(true);
-        const response = await chrome.runtime.sendMessage({
-            action: 'SEARCH_START',
-            payload: { query: nextQuery, filters: nextFilters },
-        });
-        const data = response?.data as SearchStartResponseData | undefined;
-        const nextMatches = data?.matches ?? [];
-        setMatches(nextMatches);
-        setCurrentIndex(nextMatches.length > 0 ? 0 : -1);
-        setLastSearchedQuery(nextQuery);
-        setSearched(true);
-        setIsSearching(false);
-        refocusInput();
+        try {
+            const response = await chrome.runtime.sendMessage({
+                action: 'SEARCH_START',
+                payload: { query: nextQuery, filters: nextFilters },
+            });
+            if (!response?.success) {
+                notify(
+                    'error',
+                    typeof response?.error === 'string'
+                        ? response.error
+                        : '검색을 실행할 수 없습니다.',
+                );
+                setMatches([]);
+                setCurrentIndex(-1);
+                setSearched(true);
+                return;
+            }
+            const data = response?.data as SearchStartResponseData | undefined;
+            const nextMatches = data?.matches ?? [];
+            setMatches(nextMatches);
+            setCurrentIndex(nextMatches.length > 0 ? 0 : -1);
+            setLastSearchedQuery(nextQuery);
+            setSearched(true);
+        } catch {
+            notify('error', '검색 중 통신 오류가 발생했습니다.');
+            setMatches([]);
+            setCurrentIndex(-1);
+            setSearched(true);
+        } finally {
+            setIsSearching(false);
+            refocusInput();
+        }
     };
 
     const handleSearch = () => runSearch(query, filters);
@@ -168,6 +195,7 @@ export function SearchPanel({ focusSignal }: SearchPanelProps = {}) {
     }, [filters]);
 
     const handleClear = async () => {
+        clearNotice();
         await chrome.runtime.sendMessage({ action: 'SEARCH_CLEAR' });
         setQuery('');
         resetSearchState();
@@ -178,6 +206,7 @@ export function SearchPanel({ focusSignal }: SearchPanelProps = {}) {
         setQuery(newQuery);
         // 검색어를 모두 지우면 하이라이팅/결과도 함께 제거
         if (!newQuery && (matches.length > 0 || searched)) {
+            clearNotice();
             chrome.runtime.sendMessage({ action: 'SEARCH_CLEAR' }).catch(() => {});
             resetSearchState();
         }
@@ -187,10 +216,22 @@ export function SearchPanel({ focusSignal }: SearchPanelProps = {}) {
         if (matches.length === 0) return;
         const normalized = ((index % matches.length) + matches.length) % matches.length;
         setCurrentIndex(normalized);
-        await chrome.runtime.sendMessage({
-            action: 'SEARCH_NAVIGATE',
-            payload: { matchId: matches[normalized].id },
-        });
+        try {
+            const response = await chrome.runtime.sendMessage({
+                action: 'SEARCH_NAVIGATE',
+                payload: { matchId: matches[normalized].id },
+            });
+            if (!response?.success) {
+                notify(
+                    'error',
+                    typeof response?.error === 'string'
+                        ? response.error
+                        : '검색 결과 위치로 이동할 수 없습니다.',
+                );
+            }
+        } catch {
+            notify('error', '검색 결과 이동 중 통신 오류가 발생했습니다.');
+        }
         refocusInput();
     };
 

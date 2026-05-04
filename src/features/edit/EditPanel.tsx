@@ -1,25 +1,42 @@
-import { Clipboard, Play, Square, Trash2 } from 'lucide-react';
+import { Clipboard, ClipboardPaste, Play, Square, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import type { NotifyPanel, SetPanelGuide } from '../../content/panelNotice';
+import { getEditClipboardLogics, setEditClipboardLogics } from '../../content/storage';
 import { KIND_ICON } from '../../shared/icons';
 import type {
-    EditSelectionItem,
-    EditUiSyncPayload,
     EditDeleteSelectedPayload,
     EditDeleteSelectedResponseData,
+    EditPasteLogicsPayload,
+    EditPasteLogicsResponseData,
+    EditSelectionItem,
+    EditUiSyncPayload,
     ExtensionMessage,
     ExtensionResponse,
 } from '../../shared/types/messages';
 
 interface EditPanelProps {
     eventSettingAvailable: boolean;
+    notify: NotifyPanel;
+    clearNotice: () => void;
+    setGuide: SetPanelGuide;
+    clearGuide: () => void;
 }
 
-export function EditPanel({ eventSettingAvailable }: EditPanelProps) {
+export function EditPanel({
+    eventSettingAvailable,
+    notify,
+    clearNotice,
+    setGuide,
+    clearGuide,
+}: EditPanelProps) {
     const [isSelecting, setIsSelecting] = useState(false);
     const [selectedItems, setSelectedItems] = useState<EditSelectionItem[]>([]);
     const [currentIndex, setCurrentIndex] = useState(-1);
-    const [lastError, setLastError] = useState<string | null>(null);
-    const [lastInfo, setLastInfo] = useState<string | null>(null);
+    const [copiedLogics, setCopiedLogics] = useState<unknown[]>([]);
+
+    useEffect(() => {
+        void getEditClipboardLogics().then((stored) => setCopiedLogics(stored));
+    }, []);
 
     useEffect(() => {
         const onMsg = (msg: ExtensionMessage) => {
@@ -31,22 +48,32 @@ export function EditPanel({ eventSettingAvailable }: EditPanelProps) {
                 if (Array.isArray(p?.selectedItems)) {
                     setSelectedItems(p.selectedItems);
                     setCurrentIndex(p.selectedItems.length > 0 ? 0 : -1);
-                    setLastInfo(null);
+                }
+                if (typeof p?.error === 'string') {
+                    notify('error', p.error);
                 }
             }
         };
         chrome.runtime.onMessage.addListener(onMsg);
         return () => chrome.runtime.onMessage.removeListener(onMsg);
-    }, []);
+    }, [notify]);
+
+    useEffect(() => {
+        setGuide(
+            isSelecting
+                ? '페이지 왼쪽 seq 열에서 클릭·Shift+클릭·드래그로 선택합니다. 드래그 경로를 지나는 줄은 선택/비선택이 토글됩니다. Esc·패널 닫기·접기·페이지 이동 시에도 모드가 꺼집니다. 또는 선택 종료를 누르세요.'
+                : '선택 시작을 누르면 eventSetting 화면의 seq 열에 선택 핸들이 나타납니다.',
+        );
+        return () => clearGuide();
+    }, [clearGuide, isSelecting, setGuide]);
 
     const handleStartSelection = () => {
-        setLastError(null);
-        setLastInfo(null);
+        clearNotice();
         chrome.runtime.sendMessage(
             { action: 'EDIT_START' } satisfies ExtensionMessage,
             (res: ExtensionResponse | undefined) => {
                 if (chrome.runtime.lastError) {
-                    setLastError(chrome.runtime.lastError.message ?? '통신 오류');
+                    notify('error', chrome.runtime.lastError.message ?? '통신 오류');
                     return;
                 }
                 if (res?.success) {
@@ -55,7 +82,8 @@ export function EditPanel({ eventSettingAvailable }: EditPanelProps) {
                     setCurrentIndex(-1);
                     return;
                 }
-                setLastError(
+                notify(
+                    'error',
                     typeof res?.error === 'string' ? res.error : '선택 모드를 켤 수 없습니다.',
                 );
             },
@@ -63,13 +91,12 @@ export function EditPanel({ eventSettingAvailable }: EditPanelProps) {
     };
 
     const handleEndSelection = () => {
-        setLastError(null);
-        setLastInfo(null);
+        clearNotice();
         chrome.runtime.sendMessage(
             { action: 'EDIT_STOP' } satisfies ExtensionMessage,
             () => {
                 if (chrome.runtime.lastError) {
-                    setLastError(chrome.runtime.lastError.message ?? '통신 오류');
+                    notify('error', chrome.runtime.lastError.message ?? '통신 오류');
                     return;
                 }
                 setIsSelecting(false);
@@ -80,20 +107,58 @@ export function EditPanel({ eventSettingAvailable }: EditPanelProps) {
     };
 
     const handleCopySelected = async () => {
-        setLastError(null);
-        setLastInfo(null);
+        clearNotice();
         try {
             const json = selectedItems.map((item) => item.json);
             await navigator.clipboard.writeText(JSON.stringify(json, null, 2));
-            setLastInfo(`${selectedItems.length}개 로직을 클립보드에 복사했습니다.`);
+            await setEditClipboardLogics(json);
+            setCopiedLogics(json);
+            notify('success', `${selectedItems.length}개 로직을 클립보드에 복사했습니다.`);
         } catch {
-            setLastError('클립보드에 복사할 수 없습니다.');
+            notify('error', '클립보드에 복사할 수 없습니다.');
         }
     };
 
+    const handlePasteCopied = () => {
+        clearNotice();
+        chrome.runtime.sendMessage(
+            {
+                action: 'EDIT_PASTE_LOGICS',
+                payload: { logics: copiedLogics } satisfies EditPasteLogicsPayload,
+            } satisfies ExtensionMessage,
+            (res: ExtensionResponse | undefined) => {
+                if (chrome.runtime.lastError) {
+                    notify('error', chrome.runtime.lastError.message ?? '통신 오류');
+                    return;
+                }
+                const data = res?.data as EditPasteLogicsResponseData | undefined;
+                if (res?.success && data) {
+                    setIsSelecting(false);
+                    setSelectedItems([]);
+                    setCurrentIndex(-1);
+                    notify('success', `${data.createdCount}개 로직을 붙여넣었습니다.`);
+                    return;
+                }
+                if (data && data.createdCount > 0) {
+                    setIsSelecting(false);
+                    setSelectedItems([]);
+                    setCurrentIndex(-1);
+                    notify(
+                        'error',
+                        `${data.createdCount}개 붙여넣기, ${data.errors.length}개 실패했습니다.`,
+                    );
+                    return;
+                }
+                notify(
+                    'error',
+                    typeof res?.error === 'string' ? res.error : '로직을 붙여넣을 수 없습니다.',
+                );
+            },
+        );
+    };
+
     const handleDeleteSelected = () => {
-        setLastError(null);
-        setLastInfo(null);
+        clearNotice();
         const logicIds = selectedItems.map((item) => item.logicId);
         chrome.runtime.sendMessage(
             {
@@ -102,7 +167,7 @@ export function EditPanel({ eventSettingAvailable }: EditPanelProps) {
             } satisfies ExtensionMessage,
             (res: ExtensionResponse | undefined) => {
                 if (chrome.runtime.lastError) {
-                    setLastError(chrome.runtime.lastError.message ?? '통신 오류');
+                    notify('error', chrome.runtime.lastError.message ?? '통신 오류');
                     return;
                 }
                 const data = res?.data as EditDeleteSelectedResponseData | undefined;
@@ -110,19 +175,21 @@ export function EditPanel({ eventSettingAvailable }: EditPanelProps) {
                     setIsSelecting(false);
                     setSelectedItems([]);
                     setCurrentIndex(-1);
-                    setLastInfo(`${data.deletedCount}개 로직을 삭제했습니다.`);
+                    notify('success', `${data.deletedCount}개 로직을 삭제했습니다.`);
                     return;
                 }
                 if (data && data.deletedCount > 0) {
                     setIsSelecting(false);
                     setSelectedItems([]);
                     setCurrentIndex(-1);
-                    setLastError(
+                    notify(
+                        'error',
                         `${data.deletedCount}개 삭제, ${data.errors.length}개 실패했습니다.`,
                     );
                     return;
                 }
-                setLastError(
+                notify(
+                    'error',
                     typeof res?.error === 'string' ? res.error : '선택 로직을 삭제할 수 없습니다.',
                 );
             },
@@ -153,6 +220,15 @@ export function EditPanel({ eventSettingAvailable }: EditPanelProps) {
                     선택 종료
                 </button>
             </div>
+            <button
+                type="button"
+                onClick={handlePasteCopied}
+                disabled={!eventSettingAvailable || copiedLogics.length === 0}
+                className="panel__btn panel__btn--primary"
+            >
+                <ClipboardPaste size={14} />
+                붙여넣기
+            </button>
             {selectedItems.length > 0 && (
                 <div className="panel__row">
                     <button
@@ -206,17 +282,6 @@ export function EditPanel({ eventSettingAvailable }: EditPanelProps) {
                     </ul>
                 </div>
             )}
-            <div className="panel__notice">
-                {lastError ? (
-                    <span className="panel__hint panel__hint--error">{lastError}</span>
-                ) : lastInfo ? (
-                    <span className="panel__hint panel__hint--success">{lastInfo}</span>
-                ) : isSelecting ? (
-                    '페이지 왼쪽 seq 열에서 클릭·Shift+클릭·드래그로 선택합니다. 드래그 경로를 지나는 줄은 선택/비선택이 토글됩니다. Esc·패널 닫기·접기·페이지 이동 시에도 모드가 꺼집니다. 또는 선택 종료를 누르세요.'
-                ) : (
-                    '선택 시작을 누르면 eventSetting 화면의 seq 열에 선택 핸들이 나타납니다.'
-                )}
-            </div>
         </div>
     );
 }

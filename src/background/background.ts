@@ -1,5 +1,6 @@
 import type {
     EditDeleteSelectedPayload,
+    EditPasteLogicsPayload,
     EditSelectionChangedPayload,
     EditUiSyncPayload,
     ExtensionMessage,
@@ -8,6 +9,7 @@ import type {
     SearchStartPayload,
     SearchStartResponseData,
 } from '../shared/types/messages';
+import { pasteCopiedLogics } from '../features/edit/background/pasteCopiedLogics';
 import { pinLogicAreaMainWorld } from '../features/edit/background/pinLogicAreaMainWorld';
 import { removeSelectedLogics } from '../features/edit/background/removeSelectedLogics';
 import { resolveSelectedLogics } from '../features/edit/background/resolveSelectedLogics';
@@ -354,6 +356,14 @@ chrome.runtime.onMessage.addListener(
                     logicIds,
                 );
                 if (!selectedItems) {
+                    await safeSendToTopFrame(tabId, {
+                        action: 'EDIT_UI_SYNC',
+                        payload: {
+                            logicEditActive: true,
+                            selectedItems: [],
+                            error: '선택한 로직 정보를 읽을 수 없습니다. 선택을 다시 시도하세요.',
+                        } satisfies EditUiSyncPayload,
+                    });
                     sendResponse({
                         success: false,
                         error: '선택된 로직 정보를 읽을 수 없습니다.',
@@ -366,6 +376,7 @@ chrome.runtime.onMessage.addListener(
                     payload: {
                         logicEditActive: true,
                         selectedItems,
+                        error: payload?.error,
                     } satisfies EditUiSyncPayload,
                 });
                 sendResponse({
@@ -425,6 +436,62 @@ chrome.runtime.onMessage.addListener(
                     success: data.errors.length === 0,
                     data,
                     error: data.errors.length > 0 ? '일부 로직 삭제에 실패했습니다.' : undefined,
+                } satisfies ExtensionResponse);
+            })();
+            return true;
+        }
+
+        if (message.action === 'EDIT_PASTE_LOGICS') {
+            (async () => {
+                const target = await resolveTargetFrame(tabId);
+                if (!target) {
+                    sendResponse({
+                        success: false,
+                        error: 'eventSetting 화면이 아닙니다.',
+                    } satisfies ExtensionResponse);
+                    return;
+                }
+
+                const payload = message.payload as EditPasteLogicsPayload | undefined;
+                const logics = Array.isArray(payload?.logics) ? payload.logics : [];
+                if (logics.length === 0) {
+                    sendResponse({
+                        success: false,
+                        error: '붙여넣을 로직이 없습니다.',
+                    } satisfies ExtensionResponse);
+                    return;
+                }
+
+                const data = await pasteCopiedLogics(tabId, target.frameId, logics);
+                if (!data) {
+                    sendResponse({
+                        success: false,
+                        error: '붙여넣기 실행 환경에 접근할 수 없습니다.',
+                    } satisfies ExtensionResponse);
+                    return;
+                }
+                if (data.setupError) {
+                    sendResponse({
+                        success: false,
+                        data,
+                        error: data.setupError,
+                    } satisfies ExtensionResponse);
+                    return;
+                }
+
+                await sendToFrame(tabId, target.frameId, { action: 'EDIT_STOP' });
+                await safeSendToTopFrame(tabId, {
+                    action: 'EDIT_UI_SYNC',
+                    payload: {
+                        logicEditActive: false,
+                        selectedItems: [],
+                    } satisfies EditUiSyncPayload,
+                });
+
+                sendResponse({
+                    success: data.errors.length === 0,
+                    data,
+                    error: data.errors.length > 0 ? '일부 로직 붙여넣기에 실패했습니다.' : undefined,
                 } satisfies ExtensionResponse);
             })();
             return true;

@@ -20,19 +20,25 @@ function notifyInactive(): void {
     void chrome.runtime.sendMessage(msg);
 }
 
-function logicIdFromSeqLi(li: HTMLLIElement): string | null {
+function logicIdFromSeqLi(li: HTMLLIElement): { logicId: string | null; error?: string } {
     const id = li.id?.trim();
     const suffix = '_seq';
     if (!id || !id.endsWith(suffix)) {
         console.error('[lamp7-genie] seq li id does not match {logicId}_seq', { id });
-        return null;
+        return {
+            logicId: null,
+            error: '선택한 로직의 식별자를 읽을 수 없습니다. 화면을 새로고침한 뒤 다시 시도하세요.',
+        };
     }
     const logicId = id.slice(0, -suffix.length).trim();
     if (!logicId) {
         console.error('[lamp7-genie] seq li id has empty logicId', { id });
-        return null;
+        return {
+            logicId: null,
+            error: '선택한 로직의 식별자가 비어 있습니다. 선택을 다시 시도하세요.',
+        };
     }
-    return logicId;
+    return { logicId };
 }
 
 /** 핀은 iframe 내부 문서에만 있을 수 있어, 접근 가능한 같은 출처 문서 전부에서 제거 */
@@ -84,17 +90,20 @@ export function mountEdit(): boolean {
         resyncEditSeqItems(dom);
         const logicIds: string[] = [];
         const seen = new Set<string>();
+        let error: string | undefined;
         dom.seqItems.forEach((li, i) => {
             const key = seqItemKey(li, i);
             if (!selectedKeys.has(key)) return;
-            const logicId = logicIdFromSeqLi(li);
+            const result = logicIdFromSeqLi(li);
+            const logicId = result.logicId;
+            if (!logicId && !error) error = result.error;
             if (!logicId || seen.has(logicId)) return;
             seen.add(logicId);
             logicIds.push(logicId);
         });
         const msg: ExtensionMessage = {
             action: 'EDIT_SELECTION_CHANGED',
-            payload: { logicIds } satisfies EditSelectionChangedPayload,
+            payload: { logicIds, error } satisfies EditSelectionChangedPayload,
         };
         void chrome.runtime.sendMessage(msg, () => void chrome.runtime.lastError);
     };

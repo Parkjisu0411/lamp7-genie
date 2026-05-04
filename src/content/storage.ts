@@ -3,6 +3,7 @@
 export const STORAGE_KEYS = {
     PANEL_OFFSET_Y: 'genie.panelOffsetY',
     SEARCH_FILTERS: 'genie.searchFilters',
+    EDIT_CLIPBOARD_LOGICS: 'genie.editClipboardLogics',
 } as const;
 
 export type StoredFilterKey =
@@ -44,4 +45,14 @@ export async function getSearchFilters(): Promise<StoredSearchFilters> {
 
 export async function setSearchFilters(f: StoredSearchFilters): Promise<void> {
     await chrome.storage.local.set({ [STORAGE_KEYS.SEARCH_FILTERS]: f });
+}
+
+export async function getEditClipboardLogics(): Promise<unknown[]> {
+    const r = await chrome.storage.local.get(STORAGE_KEYS.EDIT_CLIPBOARD_LOGICS);
+    const raw = r[STORAGE_KEYS.EDIT_CLIPBOARD_LOGICS];
+    return Array.isArray(raw) ? raw : [];
+}
+
+export async function setEditClipboardLogics(logics: unknown[]): Promise<void> {
+    await chrome.storage.local.set({ [STORAGE_KEYS.EDIT_CLIPBOARD_LOGICS]: logics });
 }

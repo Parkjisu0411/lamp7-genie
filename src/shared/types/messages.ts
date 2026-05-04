@@ -13,6 +13,7 @@ export type MessageAction =
     | 'EDIT_NOTIFY_INACTIVE'
     | 'EDIT_SELECTION_CHANGED'
     | 'EDIT_DELETE_SELECTED'
+    | 'EDIT_PASTE_LOGICS'
     | 'EDIT_UI_SYNC'
     /** Esc·패널 닫기: eventSetting iframe EDIT_STOP + top HIDE */
     | 'GENIE_DISMISS';
@@ -100,10 +101,12 @@ export interface SearchStartResponseData {
 export interface EditUiSyncPayload {
     logicEditActive: boolean;
     selectedItems?: EditSelectionItem[];
+    error?: string;
 }
 
 export interface EditSelectionChangedPayload {
     logicIds: string[];
+    error?: string;
 }
 
 export interface EditDeleteSelectedPayload {
@@ -113,6 +116,16 @@ export interface EditDeleteSelectedPayload {
 export interface EditDeleteSelectedResponseData {
     deletedCount: number;
     errors: Array<{ logicId: string; error: string }>;
+}
+
+export interface EditPasteLogicsPayload {
+    logics: unknown[];
+}
+
+export interface EditPasteLogicsResponseData {
+    createdCount: number;
+    errors: Array<{ oldId: string; error: string }>;
+    setupError?: string;
 }
 
 export interface EditSelectionItem {

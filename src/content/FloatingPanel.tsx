@@ -4,6 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { EditPanel } from '../features/edit';
 import { SearchPanel } from '../features/search';
 import type { ExtensionMessage } from '../shared/types/messages';
+import { PanelNoticeBar } from './PanelNoticeBar';
+import type { NoticeKind, PanelNotice } from './panelNotice';
 import { getPanelOffsetY, setPanelOffsetY } from './storage';
 
 type Tab = 'search' | 'edit';
@@ -33,6 +35,8 @@ export function FloatingPanel({
 }: FloatingPanelProps) {
     const [isExpanded, setIsExpanded] = useState(true);
     const [activeTab, setActiveTab] = useState<Tab>('search');
+    const [notice, setNotice] = useState<PanelNotice | null>(null);
+    const [guide, setGuideNotice] = useState<PanelNotice | null>(null);
     const [offsetY, setOffsetY] = useState(0);
     const offsetYRef = useRef(0);
 
@@ -58,6 +62,22 @@ export function FloatingPanel({
     }, []);
 
     const effectiveExpanded = eventSettingAvailable && isExpanded;
+
+    const notify = useCallback((kind: NoticeKind, message: string) => {
+        setNotice({ id: Date.now(), kind, message });
+    }, []);
+
+    const clearNotice = useCallback(() => {
+        setNotice(null);
+    }, []);
+
+    const setGuide = useCallback((message: string) => {
+        setGuideNotice({ id: Date.now(), kind: 'info', message });
+    }, []);
+
+    const clearGuide = useCallback(() => {
+        setGuideNotice(null);
+    }, []);
 
     /** 미니로 접을 때 seq 선택 모드 정리 (iframe에 EDIT_STOP) */
     useEffect(() => {
@@ -303,11 +323,34 @@ export function FloatingPanel({
                                 ref={panelBodyContentRef}
                                 className="genie-panel__content"
                             >
+                                {notice && (
+                                    <PanelNoticeBar
+                                        key={notice.id}
+                                        notice={notice}
+                                        onClose={clearNotice}
+                                    />
+                                )}
+                                {guide && (
+                                    <PanelNoticeBar
+                                        key={guide.id}
+                                        notice={guide}
+                                        onClose={clearGuide}
+                                    />
+                                )}
                                 {activeTab === 'search' ? (
-                                    <SearchPanel focusSignal={focusSearchSignal} />
+                                    <SearchPanel
+                                        focusSignal={focusSearchSignal}
+                                        notify={notify}
+                                        clearNotice={clearNotice}
+                                        clearGuide={clearGuide}
+                                    />
                                 ) : (
                                     <EditPanel
                                         eventSettingAvailable={eventSettingAvailable}
+                                        notify={notify}
+                                        clearNotice={clearNotice}
+                                        setGuide={setGuide}
+                                        clearGuide={clearGuide}
                                     />
                                 )}
                             </div>
