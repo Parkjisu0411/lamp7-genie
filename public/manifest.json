@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Lamp7 Genie",
   "version": "0.1.0",
-  "description": "사내 솔루션 보조 도구 - 검색 및 클립보드 기능 제공",
+  "description": "사내 솔루션 보조 도구 - 검색 및 편집 기능 제공",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -14,7 +14,6 @@
   "permissions": [
     "activeTab",
     "scripting",
-    "clipboardRead",
     "clipboardWrite",
     "storage",
     "webNavigation"

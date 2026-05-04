@@ -3,7 +3,10 @@ import {
     EDIT_SELECTED_CLASS,
     EDIT_WRAP_ACTIVE_CLASS,
 } from '../../shared/constants';
-import type { ExtensionMessage } from '../../shared/types/messages';
+import type {
+    EditSelectionChangedPayload,
+    ExtensionMessage,
+} from '../../shared/types/messages';
 import { collectSameOriginDocuments, findEditDom, resyncEditSeqItems, seqItemKey } from './dom';
 import { injectEditStyles } from './styles';
 
@@ -15,6 +18,21 @@ let disposeSession: (() => void) | null = null;
 function notifyInactive(): void {
     const msg: ExtensionMessage = { action: 'EDIT_NOTIFY_INACTIVE' };
     void chrome.runtime.sendMessage(msg);
+}
+
+function logicIdFromSeqLi(li: HTMLLIElement): string | null {
+    const id = li.id?.trim();
+    const suffix = '_seq';
+    if (!id || !id.endsWith(suffix)) {
+        console.error('[lamp7-genie] seq li id does not match {logicId}_seq', { id });
+        return null;
+    }
+    const logicId = id.slice(0, -suffix.length).trim();
+    if (!logicId) {
+        console.error('[lamp7-genie] seq li id has empty logicId', { id });
+        return null;
+    }
+    return logicId;
 }
 
 /** 핀은 iframe 내부 문서에만 있을 수 있어, 접근 가능한 같은 출처 문서 전부에서 제거 */
@@ -60,6 +78,25 @@ export function mountEdit(): boolean {
             const key = seqItemKey(li, i);
             li.classList.toggle(EDIT_SELECTED_CLASS, selectedKeys.has(key));
         });
+    };
+
+    const notifySelectionChanged = (): void => {
+        resyncEditSeqItems(dom);
+        const logicIds: string[] = [];
+        const seen = new Set<string>();
+        dom.seqItems.forEach((li, i) => {
+            const key = seqItemKey(li, i);
+            if (!selectedKeys.has(key)) return;
+            const logicId = logicIdFromSeqLi(li);
+            if (!logicId || seen.has(logicId)) return;
+            seen.add(logicId);
+            logicIds.push(logicId);
+        });
+        const msg: ExtensionMessage = {
+            action: 'EDIT_SELECTION_CHANGED',
+            payload: { logicIds } satisfies EditSelectionChangedPayload,
+        };
+        void chrome.runtime.sendMessage(msg, () => void chrome.runtime.lastError);
     };
 
     const addRangeInclusive = (from: number, to: number): void => {
@@ -296,6 +333,7 @@ export function mountEdit(): boolean {
 
         applySelectionClass();
         clickSuppressUntil = performance.now() + CLICK_SUPPRESS_MS;
+        notifySelectionChanged();
     };
 
     const onPointerCancel = (e: PointerEvent): void => {
@@ -310,6 +348,7 @@ export function mountEdit(): boolean {
         selectedKeys.clear();
         for (const k of pd.snapshot) selectedKeys.add(k);
         applySelectionClass();
+        notifySelectionChanged();
     };
 
     const onClickCapture = (e: MouseEvent): void => {
@@ -363,6 +402,8 @@ export function mountEdit(): boolean {
         clearSelectionClassesLocal();
         clearLogicAreaPin();
     };
+
+    notifySelectionChanged();
 
     return true;
 }

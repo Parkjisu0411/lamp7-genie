@@ -8,11 +8,11 @@ export type MessageAction =
     | 'SEARCH_NAVIGATE'
     | 'SEARCH_CLEAR'
     | 'HIGHLIGHT_TARGETS'
-    | 'CLIPBOARD_COPY'
-    | 'CLIPBOARD_PASTE'
     | 'EDIT_START'
     | 'EDIT_STOP'
     | 'EDIT_NOTIFY_INACTIVE'
+    | 'EDIT_SELECTION_CHANGED'
+    | 'EDIT_DELETE_SELECTED'
     | 'EDIT_UI_SYNC'
     /** Esc·패널 닫기: eventSetting iframe EDIT_STOP + top HIDE */
     | 'GENIE_DISMISS';
@@ -99,4 +99,28 @@ export interface SearchStartResponseData {
 /** top frame 편집 탭 등 — iframe에서 Esc 등으로 편집 종료 시 동기화 */
 export interface EditUiSyncPayload {
     logicEditActive: boolean;
+    selectedItems?: EditSelectionItem[];
+}
+
+export interface EditSelectionChangedPayload {
+    logicIds: string[];
+}
+
+export interface EditDeleteSelectedPayload {
+    logicIds: string[];
+}
+
+export interface EditDeleteSelectedResponseData {
+    deletedCount: number;
+    errors: Array<{ logicId: string; error: string }>;
+}
+
+export interface EditSelectionItem {
+    id: string;
+    logicId: string;
+    kind: SearchMatchKind;
+    label: string;
+    snippet: string;
+    seq: string;
+    json: unknown;
 }

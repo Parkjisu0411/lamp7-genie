@@ -1,4 +1,6 @@
 import type {
+    EditDeleteSelectedPayload,
+    EditSelectionChangedPayload,
     EditUiSyncPayload,
     ExtensionMessage,
     ExtensionResponse,
@@ -7,6 +9,8 @@ import type {
     SearchStartResponseData,
 } from '../shared/types/messages';
 import { pinLogicAreaMainWorld } from '../features/edit/background/pinLogicAreaMainWorld';
+import { removeSelectedLogics } from '../features/edit/background/removeSelectedLogics';
+import { resolveSelectedLogics } from '../features/edit/background/resolveSelectedLogics';
 import { queryFrameData } from '../features/search/background/queryFrameData';
 import { resolveTargetFrame } from '../features/search/background/resolveTargetFrame';
 
@@ -320,9 +324,109 @@ chrome.runtime.onMessage.addListener(
         if (message.action === 'EDIT_NOTIFY_INACTIVE') {
             void safeSendToTopFrame(tabId, {
                 action: 'EDIT_UI_SYNC',
-                payload: { logicEditActive: false } satisfies EditUiSyncPayload,
+                payload: {
+                    logicEditActive: false,
+                    selectedItems: [],
+                } satisfies EditUiSyncPayload,
             });
             sendResponse({ success: true } satisfies ExtensionResponse);
+            return true;
+        }
+
+        if (message.action === 'EDIT_SELECTION_CHANGED') {
+            (async () => {
+                const frameId = sender.frameId;
+                if (typeof frameId !== 'number') {
+                    sendResponse({
+                        success: false,
+                        error: '편집 대상 프레임을 알 수 없습니다.',
+                    } satisfies ExtensionResponse);
+                    return;
+                }
+
+                const payload = message.payload as EditSelectionChangedPayload | undefined;
+                const logicIds = Array.isArray(payload?.logicIds)
+                    ? payload.logicIds.filter((id): id is string => typeof id === 'string')
+                    : [];
+                const selectedItems = await resolveSelectedLogics(
+                    tabId,
+                    frameId,
+                    logicIds,
+                );
+                if (!selectedItems) {
+                    sendResponse({
+                        success: false,
+                        error: '선택된 로직 정보를 읽을 수 없습니다.',
+                    } satisfies ExtensionResponse);
+                    return;
+                }
+
+                await safeSendToTopFrame(tabId, {
+                    action: 'EDIT_UI_SYNC',
+                    payload: {
+                        logicEditActive: true,
+                        selectedItems,
+                    } satisfies EditUiSyncPayload,
+                });
+                sendResponse({
+                    success: true,
+                    data: { count: selectedItems.length },
+                } satisfies ExtensionResponse);
+            })();
+            return true;
+        }
+
+        if (message.action === 'EDIT_DELETE_SELECTED') {
+            (async () => {
+                const target = await resolveTargetFrame(tabId);
+                if (!target) {
+                    sendResponse({
+                        success: false,
+                        error: 'eventSetting 화면이 아닙니다.',
+                    } satisfies ExtensionResponse);
+                    return;
+                }
+
+                const payload = message.payload as EditDeleteSelectedPayload | undefined;
+                const logicIds = Array.isArray(payload?.logicIds)
+                    ? payload.logicIds.filter((id): id is string => typeof id === 'string')
+                    : [];
+                if (logicIds.length === 0) {
+                    sendResponse({
+                        success: false,
+                        error: '삭제할 로직이 없습니다.',
+                    } satisfies ExtensionResponse);
+                    return;
+                }
+
+                const data = await removeSelectedLogics(
+                    tabId,
+                    target.frameId,
+                    logicIds,
+                );
+                if (!data) {
+                    sendResponse({
+                        success: false,
+                        error: 'LogicEditor.removeLogic을 사용할 수 없습니다.',
+                    } satisfies ExtensionResponse);
+                    return;
+                }
+
+                await sendToFrame(tabId, target.frameId, { action: 'EDIT_STOP' });
+                await safeSendToTopFrame(tabId, {
+                    action: 'EDIT_UI_SYNC',
+                    payload: {
+                        logicEditActive: false,
+                        selectedItems: [],
+                    } satisfies EditUiSyncPayload,
+                });
+
+                sendResponse({
+                    success: data.errors.length === 0,
+                    data,
+                    error: data.errors.length > 0 ? '일부 로직 삭제에 실패했습니다.' : undefined,
+                } satisfies ExtensionResponse);
+            })();
             return true;
         }
     },

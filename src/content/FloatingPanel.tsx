@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ClipboardPanel } from '../features/clipboard';
+import { EditPanel } from '../features/edit';
 import { SearchPanel } from '../features/search';
 import type { ExtensionMessage } from '../shared/types/messages';
 import { getPanelOffsetY, setPanelOffsetY } from './storage';
@@ -306,7 +306,7 @@ export function FloatingPanel({
                                 {activeTab === 'search' ? (
                                     <SearchPanel focusSignal={focusSearchSignal} />
                                 ) : (
-                                    <ClipboardPanel
+                                    <EditPanel
                                         eventSettingAvailable={eventSettingAvailable}
                                     />
                                 )}

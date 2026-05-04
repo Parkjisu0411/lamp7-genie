@@ -1,1 +1,0 @@
-export { ClipboardPanel } from './ClipboardPanel';
