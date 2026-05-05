@@ -12,6 +12,7 @@ import type {
     EditUiSyncPayload,
     ExtensionMessage,
     ExtensionResponse,
+    SearchMatchKind,
 } from '../../shared/types/messages';
 
 interface EditPanelProps {
@@ -20,6 +21,50 @@ interface EditPanelProps {
     clearNotice: () => void;
     setGuide: SetPanelGuide;
     clearGuide: () => void;
+}
+
+type EditListItem = Pick<
+    EditSelectionItem,
+    'id' | 'logicId' | 'kind' | 'snippet' | 'seq' | 'json'
+>;
+
+function copiedLogicToListItem(logic: unknown, index: number): EditListItem | null {
+    if (!logic || typeof logic !== 'object' || Array.isArray(logic)) return null;
+    const raw = logic as Record<string, unknown>;
+    const asString = (value: unknown): string =>
+        typeof value === 'string'
+            ? value
+            : typeof value === 'number' && Number.isFinite(value)
+              ? String(value)
+              : '';
+    const rawKind = asString(raw.type);
+    const kind: SearchMatchKind =
+        rawKind === 'event' ||
+        rawKind === 'transaction' ||
+        rawKind === 'condition' ||
+        rawKind === 'variable'
+            ? rawKind
+            : 'event';
+    const logicId = asString(raw.id) || `copied-${index}`;
+    const label =
+        asString(raw.displayText) ||
+        asString(raw.name) ||
+        asString(raw.label) ||
+        logicId;
+    return {
+        id: logicId,
+        logicId,
+        kind,
+        snippet: label,
+        seq: asString(raw.seq),
+        json: logic,
+    };
+}
+
+function copiedLogicsToListItems(logics: unknown[]): EditListItem[] {
+    return logics
+        .map((logic, index) => copiedLogicToListItem(logic, index))
+        .filter((item): item is EditListItem => item !== null);
 }
 
 export function EditPanel({
@@ -31,11 +76,16 @@ export function EditPanel({
 }: EditPanelProps) {
     const [isSelecting, setIsSelecting] = useState(false);
     const [selectedItems, setSelectedItems] = useState<EditSelectionItem[]>([]);
+    const [copiedItems, setCopiedItems] = useState<EditListItem[]>([]);
     const [currentIndex, setCurrentIndex] = useState(-1);
     const [copiedLogics, setCopiedLogics] = useState<unknown[]>([]);
 
     useEffect(() => {
-        void getEditClipboardLogics().then((stored) => setCopiedLogics(stored));
+        void getEditClipboardLogics().then((stored) => {
+            setCopiedLogics(stored);
+            setCopiedItems(copiedLogicsToListItems(stored));
+            setCurrentIndex(stored.length > 0 ? 0 : -1);
+        });
     }, []);
 
     useEffect(() => {
@@ -69,6 +119,11 @@ export function EditPanel({
 
     const handleStartSelection = () => {
         clearNotice();
+        void setEditClipboardLogics([]);
+        setCopiedLogics([]);
+        setCopiedItems([]);
+        setSelectedItems([]);
+        setCurrentIndex(-1);
         chrome.runtime.sendMessage(
             { action: 'EDIT_START' } satisfies ExtensionMessage,
             (res: ExtensionResponse | undefined) => {
@@ -113,6 +168,14 @@ export function EditPanel({
             await navigator.clipboard.writeText(JSON.stringify(json, null, 2));
             await setEditClipboardLogics(json);
             setCopiedLogics(json);
+            setCopiedItems(selectedItems);
+            setCurrentIndex(selectedItems.length > 0 ? 0 : -1);
+            chrome.runtime.sendMessage(
+                { action: 'EDIT_STOP' } satisfies ExtensionMessage,
+                () => void chrome.runtime.lastError,
+            );
+            setIsSelecting(false);
+            setSelectedItems([]);
             notify('success', `${selectedItems.length}개 로직을 클립보드에 복사했습니다.`);
         } catch {
             notify('error', '클립보드에 복사할 수 없습니다.');
@@ -135,14 +198,14 @@ export function EditPanel({
                 if (res?.success && data) {
                     setIsSelecting(false);
                     setSelectedItems([]);
-                    setCurrentIndex(-1);
+                    setCurrentIndex(copiedItems.length > 0 ? 0 : -1);
                     notify('success', `${data.createdCount}개 로직을 붙여넣었습니다.`);
                     return;
                 }
                 if (data && data.createdCount > 0) {
                     setIsSelecting(false);
                     setSelectedItems([]);
-                    setCurrentIndex(-1);
+                    setCurrentIndex(copiedItems.length > 0 ? 0 : -1);
                     notify(
                         'error',
                         `${data.createdCount}개 붙여넣기, ${data.errors.length}개 실패했습니다.`,
@@ -195,6 +258,13 @@ export function EditPanel({
             },
         );
     };
+
+    const displayedItems = selectedItems.length > 0 ? selectedItems : copiedItems;
+    const resultLabel = selectedItems.length > 0 ? '선택된 로직' : '복사된 로직';
+    const displayIndex =
+        displayedItems.length > 0
+            ? Math.max(0, Math.min(currentIndex, displayedItems.length - 1))
+            : -1;
 
     return (
         <div className="panel">
@@ -253,20 +323,20 @@ export function EditPanel({
                     </button>
                 </div>
             )}
-            {selectedItems.length > 0 && (
+            {displayedItems.length > 0 && (
                 <div className="panel__results">
                     <div className="panel__results-header">
                         <span>
-                            {currentIndex + 1} / {selectedItems.length}
+                            {resultLabel} {displayIndex + 1} / {displayedItems.length}
                         </span>
                     </div>
                     <ul className="panel__results-list">
-                        {selectedItems.map((item, i) => {
+                        {displayedItems.map((item, i) => {
                             const Icon = KIND_ICON[item.kind];
                             return (
                                 <li
                                     key={item.id}
-                                    className={`panel__result-item ${i === currentIndex ? 'panel__result-item--active' : ''}`}
+                                    className={`panel__result-item ${i === displayIndex ? 'panel__result-item--active' : ''}`}
                                     onClick={() => setCurrentIndex(i)}
                                     title={item.logicId}
                                 >
