@@ -13,6 +13,7 @@ export type MessageAction =
     | 'EDIT_NOTIFY_INACTIVE'
     | 'EDIT_SELECTION_CHANGED'
     | 'EDIT_DELETE_SELECTED'
+    | 'EDIT_COPY_SELECTED'
     | 'EDIT_PASTE_LOGICS'
     | 'EDIT_UI_SYNC'
     /** Esc·패널 닫기: eventSetting iframe EDIT_STOP + top HIDE */
@@ -32,6 +33,9 @@ export interface ExtensionResponse {
 }
 
 export type SearchMatchKind = 'event' | 'transaction' | 'condition' | 'variable';
+
+/** 편집/표시용 로직 타입. iteration(루프)·control 포함. loop→iteration, systemFunction→control 별칭. */
+export type LogicKind = SearchMatchKind | 'iteration' | 'control';
 
 export interface SearchFilters {
     event: boolean;
@@ -118,6 +122,15 @@ export interface EditDeleteSelectedResponseData {
     errors: Array<{ logicId: string; error: string }>;
 }
 
+export interface EditCopySelectedPayload {
+    logicIds: string[];
+}
+
+export interface EditCopySelectedResponseData {
+    logics: unknown[];
+    count: number;
+}
+
 export interface EditPasteLogicsPayload {
     logics: unknown[];
 }
@@ -131,7 +144,7 @@ export interface EditPasteLogicsResponseData {
 export interface EditSelectionItem {
     id: string;
     logicId: string;
-    kind: SearchMatchKind;
+    kind: LogicKind;
     label: string;
     snippet: string;
     seq: string;

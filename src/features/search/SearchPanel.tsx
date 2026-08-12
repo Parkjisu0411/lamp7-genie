@@ -196,7 +196,11 @@ export function SearchPanel({ focusSignal, notify, clearNotice, clearGuide }: Se
 
     const handleClear = async () => {
         clearNotice();
-        await chrome.runtime.sendMessage({ action: 'SEARCH_CLEAR' });
+        try {
+            await chrome.runtime.sendMessage({ action: 'SEARCH_CLEAR' });
+        } catch {
+            /* Extension context invalidated 등 — 무시 */
+        }
         setQuery('');
         resetSearchState();
         refocusInput();

@@ -21,9 +21,16 @@ export async function readFrameMemory<TArgs extends unknown[], TResult>(
             func: fn as (...args: unknown[]) => unknown,
             args: args as unknown[],
         });
-        return (injectionResult?.result as TResult) ?? null;
+        if (!injectionResult) {
+            console.warn('[lamp7-genie] readFrameMemory: empty injection result', {
+                tabId,
+                frameId,
+            });
+            return null;
+        }
+        return (injectionResult.result as TResult) ?? null;
     } catch (err) {
-        console.warn('[lamp7-genie] readFrameMemory failed', err);
+        console.warn('[lamp7-genie] readFrameMemory failed', { tabId, frameId, err });
         return null;
     }
 }

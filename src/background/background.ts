@@ -1,4 +1,6 @@
 import type {
+    EditCopySelectedPayload,
+    EditCopySelectedResponseData,
     EditDeleteSelectedPayload,
     EditPasteLogicsPayload,
     EditSelectionChangedPayload,
@@ -387,6 +389,67 @@ chrome.runtime.onMessage.addListener(
             return true;
         }
 
+        if (message.action === 'EDIT_COPY_SELECTED') {
+            (async () => {
+                const target = await resolveTargetFrame(tabId);
+                if (!target) {
+                    sendResponse({
+                        success: false,
+                        error: 'eventSetting 화면이 아닙니다.',
+                    } satisfies ExtensionResponse);
+                    return;
+                }
+
+                const payload = message.payload as EditCopySelectedPayload | undefined;
+                const logicIds = Array.isArray(payload?.logicIds)
+                    ? payload.logicIds.filter((id): id is string => typeof id === 'string')
+                    : [];
+                if (logicIds.length === 0) {
+                    sendResponse({
+                        success: false,
+                        error: '복사할 로직이 없습니다.',
+                    } satisfies ExtensionResponse);
+                    return;
+                }
+
+                const selectedItems = await resolveSelectedLogics(
+                    tabId,
+                    target.frameId,
+                    logicIds,
+                );
+                if (!selectedItems) {
+                    sendResponse({
+                        success: false,
+                        error: '선택한 로직 정보를 읽을 수 없습니다.',
+                    } satisfies ExtensionResponse);
+                    return;
+                }
+
+                const logics = selectedItems
+                    .map((item) => item.json)
+                    .filter(
+                        (v): v is Record<string, unknown> =>
+                            !!v && typeof v === 'object' && !Array.isArray(v),
+                    );
+                if (logics.length === 0) {
+                    sendResponse({
+                        success: false,
+                        error: '복사할 로직 JSON이 없습니다.',
+                    } satisfies ExtensionResponse);
+                    return;
+                }
+
+                sendResponse({
+                    success: true,
+                    data: {
+                        logics,
+                        count: logics.length,
+                    } satisfies EditCopySelectedResponseData,
+                } satisfies ExtensionResponse);
+            })();
+            return true;
+        }
+
         if (message.action === 'EDIT_DELETE_SELECTED') {
             (async () => {
                 const target = await resolveTargetFrame(tabId);
@@ -466,7 +529,8 @@ chrome.runtime.onMessage.addListener(
                 if (!data) {
                     sendResponse({
                         success: false,
-                        error: '붙여넣기 실행 환경에 접근할 수 없습니다.',
+                        error:
+                            'eventSetting 화면에 붙여넣기 스크립트를 실행하지 못했습니다. 페이지를 새로고침한 뒤 다시 시도하세요.',
                     } satisfies ExtensionResponse);
                     return;
                 }

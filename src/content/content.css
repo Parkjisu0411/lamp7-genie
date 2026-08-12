@@ -72,7 +72,7 @@
     width: 300px;
     display: flex;
     flex-direction: column;
-    background: #fff;
+    background: #f8fafc;
     border-radius: 12px;
     box-shadow: 0 8px 32px rgba(15, 23, 42, 0.12), 0 2px 8px rgba(15, 23, 42, 0.06);
     border: none;
@@ -87,56 +87,53 @@
     box-sizing: border-box;
 }
 
-/* 헤더 */
-.genie-panel__header {
-    background: linear-gradient(180deg, #7dd3fc 0%, #60a5fa 100%);
-    color: #fff;
-    padding: 8px 16px;
+/* 헤더 띠 제거 — 탭 + 접기를 한 줄 툴바로 */
+.genie-panel__toolbar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
+    padding: 12px;
+    background: #f8fafc;
 }
 
-.genie-panel__title {
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: 0.3px;
-}
-
-.genie-panel__close {
-    background: none;
-    border: none;
-    color: #fff;
-    cursor: pointer;
-    padding: 4px;
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.15s;
-}
-
-.genie-panel__close:hover {
-    background: rgba(255, 255, 255, 0.2);
-}
-
-.genie-panel__header--draggable {
+.genie-panel__toolbar--draggable {
     cursor: grab;
     user-select: none;
     touch-action: none;
 }
 
-.genie-panel__header--draggable:active {
+.genie-panel__toolbar--draggable:active {
     cursor: grabbing;
 }
 
-/* 탭 버튼 영역 — 띠를 살짝 어둡게 해 비활성 탭(밝은 면)과 대비 */
 .genie-panel__tabs {
     display: flex;
+    flex: 1;
+    min-width: 0;
     gap: 8px;
-    padding: 12px;
-    background: #dbeafe;
-    border-bottom: none;
+}
+
+.genie-panel__collapse {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: #fff;
+    color: #64748b;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1);
+    transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.genie-panel__collapse:hover {
+    background: #fff;
+    color: #334155;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
 }
 
 .genie-tab {
@@ -154,7 +151,7 @@
 }
 
 .genie-tab:hover:not(.genie-tab--active) {
-    background: #f8fafc;
+    background: #fff;
     color: #334155;
     box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
 }
@@ -173,9 +170,10 @@
 
 /* 콘텐츠 영역 */
 .genie-panel__content {
-    padding: 16px;
+    padding: 4px 16px 16px;
     max-height: 480px;
     overflow-y: auto;
+    background: #f8fafc;
 }
 
 .panel-notice {

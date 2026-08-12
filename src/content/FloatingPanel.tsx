@@ -3,12 +3,22 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { EditPanel } from '../features/edit';
 import { SearchPanel } from '../features/search';
+import { isExtensionContextValid } from '../shared/extensionContext';
 import type { ExtensionMessage } from '../shared/types/messages';
 import { PanelNoticeBar } from './PanelNoticeBar';
 import type { NoticeKind, PanelNotice } from './panelNotice';
 import { getPanelOffsetY, setPanelOffsetY } from './storage';
 
 type Tab = 'search' | 'edit';
+
+function safeSendMessage(message: ExtensionMessage): void {
+    if (!isExtensionContextValid()) return;
+    try {
+        chrome.runtime.sendMessage(message, () => void chrome.runtime.lastError);
+    } catch {
+        /* Extension context invalidated */
+    }
+}
 
 /** 기본 translateY(0) 기준 허용 범위 — 뷰포트 높이에 맞춤 */
 function clampPanelOffsetY(y: number): number {
@@ -71,10 +81,6 @@ export function FloatingPanel({
         setNotice(null);
     }, []);
 
-    const setGuide = useCallback((message: string) => {
-        setGuideNotice({ id: Date.now(), kind: 'info', message });
-    }, []);
-
     const clearGuide = useCallback(() => {
         setGuideNotice(null);
     }, []);
@@ -86,10 +92,7 @@ export function FloatingPanel({
             return;
         }
         if (prevExpandedRef.current && !effectiveExpanded) {
-            void chrome.runtime.sendMessage(
-                { action: 'EDIT_STOP' } satisfies ExtensionMessage,
-                () => void chrome.runtime.lastError,
-            );
+            safeSendMessage({ action: 'EDIT_STOP' });
         }
         prevExpandedRef.current = effectiveExpanded;
     }, [effectiveExpanded]);
@@ -103,10 +106,7 @@ export function FloatingPanel({
             if (!root?.contains(ev.target as Node)) return;
             ev.preventDefault();
             ev.stopPropagation();
-            void chrome.runtime.sendMessage(
-                { action: 'GENIE_DISMISS' } satisfies ExtensionMessage,
-                () => void chrome.runtime.lastError,
-            );
+            safeSendMessage({ action: 'GENIE_DISMISS' });
         };
         document.addEventListener('keydown', onKeyDown, true);
         return () => document.removeEventListener('keydown', onKeyDown, true);
@@ -272,10 +272,27 @@ export function FloatingPanel({
                         className="genie-panel"
                     >
                         <div
-                            className="genie-panel__header genie-panel__header--draggable"
+                            className="genie-panel__toolbar genie-panel__toolbar--draggable"
                             onPointerDown={onHeaderPointerDown}
                         >
-                            <span className="genie-panel__title">지니</span>
+                            <div className="genie-panel__tabs">
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveTab('search')}
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    className={`genie-tab ${activeTab === 'search' ? 'genie-tab--active' : ''}`}
+                                >
+                                    검색
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveTab('edit')}
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    className={`genie-tab ${activeTab === 'edit' ? 'genie-tab--active' : ''}`}
+                                >
+                                    편집
+                                </button>
+                            </div>
                             <button
                                 type="button"
                                 onClick={(e) => {
@@ -283,27 +300,11 @@ export function FloatingPanel({
                                     setIsExpanded(false);
                                 }}
                                 onPointerDown={(e) => e.stopPropagation()}
-                                className="genie-panel__close"
+                                className="genie-panel__collapse"
                                 aria-label="패널 접기"
+                                title="접기"
                             >
-                                <ChevronRight size={18} />
-                            </button>
-                        </div>
-
-                        <div className="genie-panel__tabs">
-                            <button
-                                type="button"
-                                onClick={() => setActiveTab('search')}
-                                className={`genie-tab ${activeTab === 'search' ? 'genie-tab--active' : ''}`}
-                            >
-                                검색
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setActiveTab('edit')}
-                                className={`genie-tab ${activeTab === 'edit' ? 'genie-tab--active' : ''}`}
-                            >
-                                편집
+                                <ChevronRight size={16} strokeWidth={2.25} />
                             </button>
                         </div>
 
@@ -349,8 +350,6 @@ export function FloatingPanel({
                                         eventSettingAvailable={eventSettingAvailable}
                                         notify={notify}
                                         clearNotice={clearNotice}
-                                        setGuide={setGuide}
-                                        clearGuide={clearGuide}
                                     />
                                 )}
                             </div>
