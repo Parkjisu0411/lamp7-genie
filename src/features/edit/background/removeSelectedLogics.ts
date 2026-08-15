@@ -1,5 +1,6 @@
 import type { EditDeleteSelectedResponseData } from '../../../shared/types/messages';
-import { readFrameMemory } from '../../search/background/readFrameMemory';
+import { LOGIC_EDITOR_HELPER_SOURCE } from '../../../shared/mainWorld/logicEditorSource';
+import { readFrameMemory } from '../../../shared/mainWorld/readFrameMemory';
 
 interface RemoveSelectedLogicsPayload {
     logicIds: string[];
@@ -17,8 +18,12 @@ export async function removeSelectedLogics(
     return readFrameMemory(
         tabId,
         frameId,
-        (payload: RemoveSelectedLogicsPayload) => {
-            const LogicEditor = (window as unknown as { LogicEditor?: LogicEditor }).LogicEditor;
+        (payload: RemoveSelectedLogicsPayload, helperSource: string) => {
+            type Helpers = {
+                readBinding(name: string): unknown;
+            };
+            const helpers = Function(`${helperSource}; return __lamp7GenieMainWorld;`)() as Helpers;
+            const LogicEditor = helpers.readBinding('LogicEditor') as LogicEditor | undefined;
             if (!LogicEditor || typeof LogicEditor.removeLogic !== 'function') return null;
 
             const errors: Array<{ logicId: string; error: string }> = [];
@@ -40,6 +45,6 @@ export async function removeSelectedLogics(
 
             return { deletedCount, errors };
         },
-        [{ logicIds }],
+        [{ logicIds }, LOGIC_EDITOR_HELPER_SOURCE],
     );
 }

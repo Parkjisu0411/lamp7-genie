@@ -16,12 +16,16 @@ function injectStyles() {
     style.id = HIGHLIGHT_STYLE_ID;
     style.textContent = `
     .${HIGHLIGHT_CLASS} {
-      background-color: #ffeb3b !important;
+      background-color: rgba(37, 99, 235, 0.14) !important;
+      box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.3);
       border-radius: 2px;
-      transition: background-color 0.15s;
+      transition: background-color 0.15s, box-shadow 0.15s;
     }
     .${HIGHLIGHT_ACTIVE_CLASS} {
-      background-color: #ff9800 !important;
+      background-color: rgba(37, 99, 235, 0.34) !important;
+      box-shadow:
+        inset 0 0 0 2px rgba(30, 64, 175, 0.86),
+        0 0 0 3px rgba(37, 99, 235, 0.24);
     }
   `;
     document.head.appendChild(style);

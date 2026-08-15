@@ -1,40 +1,13 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { EditPanel } from '../features/edit';
 import { SearchPanel } from '../features/search';
-import { isExtensionContextValid } from '../shared/extensionContext';
-import type { ExtensionMessage } from '../shared/types/messages';
 import { PanelNoticeBar } from './PanelNoticeBar';
-import type { NoticeKind, PanelNotice } from './panelNotice';
-import { getPanelOffsetY, setPanelOffsetY } from './storage';
-
-type Tab = 'search' | 'edit';
-
-function safeSendMessage(message: ExtensionMessage): void {
-    if (!isExtensionContextValid()) return;
-    try {
-        chrome.runtime.sendMessage(message, () => void chrome.runtime.lastError);
-    } catch {
-        /* Extension context invalidated */
-    }
-}
-
-/** 기본 translateY(0) 기준 허용 범위 — 뷰포트 높이에 맞춤 */
-function clampPanelOffsetY(y: number): number {
-    const h = typeof window !== 'undefined' ? window.innerHeight : 800;
-    const min = -160;
-    const max = Math.max(min, h - 240);
-    return Math.round(Math.max(min, Math.min(max, y)));
-}
-
-/** 짧은 드래그는 클릭으로 간주 (미니 버튼 펼치기) */
-const DRAG_CLICK_THRESHOLD_PX = 6;
+import { useFloatingPanel } from './useFloatingPanel';
 
 interface FloatingPanelProps {
     isVisible: boolean;
     focusSearchSignal: number;
-    /** false면 패널 열기(미니) 버튼을 아예 렌더하지 않음 — disabled 스타일 아님 */
     eventSettingAvailable: boolean;
 }
 
@@ -43,200 +16,30 @@ export function FloatingPanel({
     focusSearchSignal,
     eventSettingAvailable,
 }: FloatingPanelProps) {
-    const [isExpanded, setIsExpanded] = useState(true);
-    const [activeTab, setActiveTab] = useState<Tab>('search');
-    const [notice, setNotice] = useState<PanelNotice | null>(null);
-    const [guide, setGuideNotice] = useState<PanelNotice | null>(null);
-    const [offsetY, setOffsetY] = useState(0);
-    const offsetYRef = useRef(0);
-
-    /** 본문 래퍼 높이만 CSS transition — ResizeObserver로 실제 콘텐츠 높이만 반영 (내부 FLIP 스케일 없음) */
-    const panelBodyContentRef = useRef<HTMLDivElement>(null);
-    const [bodyClipHeightPx, setBodyClipHeightPx] = useState<number | null>(null);
-    const [bodyHeightTransitionOn, setBodyHeightTransitionOn] = useState(false);
-
-    const prevExpandedRef = useRef<boolean | null>(null);
-
-    useEffect(() => {
-        offsetYRef.current = offsetY;
-    }, [offsetY]);
-
-    useEffect(() => {
-        void getPanelOffsetY().then((y) => setOffsetY(clampPanelOffsetY(y)));
-    }, []);
-
-    useEffect(() => {
-        const onResize = () => setOffsetY((prev) => clampPanelOffsetY(prev));
-        window.addEventListener('resize', onResize);
-        return () => window.removeEventListener('resize', onResize);
-    }, []);
-
-    const effectiveExpanded = eventSettingAvailable && isExpanded;
-
-    const notify = useCallback((kind: NoticeKind, message: string) => {
-        setNotice({ id: Date.now(), kind, message });
-    }, []);
-
-    const clearNotice = useCallback(() => {
-        setNotice(null);
-    }, []);
-
-    const clearGuide = useCallback(() => {
-        setGuideNotice(null);
-    }, []);
-
-    /** 미니로 접을 때 seq 선택 모드 정리 (iframe에 EDIT_STOP) */
-    useEffect(() => {
-        if (prevExpandedRef.current === null) {
-            prevExpandedRef.current = effectiveExpanded;
-            return;
-        }
-        if (prevExpandedRef.current && !effectiveExpanded) {
-            safeSendMessage({ action: 'EDIT_STOP' });
-        }
-        prevExpandedRef.current = effectiveExpanded;
-    }, [effectiveExpanded]);
-
-    /** 플로팅이 펼쳐진 동안 Esc: 패널 숨김 + 선택 모드 정리(GENIE_DISMISS) */
-    useEffect(() => {
-        if (!isVisible || !effectiveExpanded) return;
-        const onKeyDown = (ev: KeyboardEvent) => {
-            if (ev.key !== 'Escape') return;
-            const root = document.getElementById('lamp7-genie-root');
-            if (!root?.contains(ev.target as Node)) return;
-            ev.preventDefault();
-            ev.stopPropagation();
-            safeSendMessage({ action: 'GENIE_DISMISS' });
-        };
-        document.addEventListener('keydown', onKeyDown, true);
-        return () => document.removeEventListener('keydown', onKeyDown, true);
-    }, [isVisible, effectiveExpanded]);
-
-    useEffect(() => {
-        if (focusSearchSignal <= 0 || !eventSettingAvailable) return;
-        queueMicrotask(() => {
-            setIsExpanded(true);
-            setActiveTab('search');
-        });
-    }, [focusSearchSignal, eventSettingAvailable]);
-
-    useEffect(() => {
-        if (!effectiveExpanded) {
-            queueMicrotask(() => {
-                setBodyClipHeightPx(null);
-                setBodyHeightTransitionOn(false);
-            });
-        }
-    }, [effectiveExpanded]);
-
-    useLayoutEffect(() => {
-        if (!effectiveExpanded) return;
-        const el = panelBodyContentRef.current;
-        if (!el) return;
-
-        const measure = () => {
-            const h = Math.ceil(el.getBoundingClientRect().height);
-            setBodyClipHeightPx(h);
-        };
-
-        const ro = new ResizeObserver(() => {
-            measure();
-        });
-        ro.observe(el);
-        measure();
-
-        let raf2 = 0;
-        const raf1 = requestAnimationFrame(() => {
-            raf2 = requestAnimationFrame(() => {
-                setBodyHeightTransitionOn(true);
-            });
-        });
-
-        return () => {
-            cancelAnimationFrame(raf1);
-            if (raf2) cancelAnimationFrame(raf2);
-            ro.disconnect();
-        };
-    }, [effectiveExpanded, activeTab]);
-
-    /**
-     * 세로 드래그 공통.
-     * - setPointerCapture + document 캡처 단계로 호스트·iframe 위에서도 move/up 유실 완화
-     * - mini: 수직 이동이 작으면 펼치기로 처리 (클릭 대체)
-     */
-    const startVerticalDrag = useCallback(
-        (e: React.PointerEvent, mode: 'header' | 'mini') => {
-            if (e.button !== 0) return;
-            e.preventDefault();
-            e.stopPropagation();
-
-            const el = e.currentTarget as HTMLElement;
-            const pointerId = e.pointerId;
-            const startY = e.clientY;
-            const startOffset = offsetYRef.current;
-            let maxAbsDy = 0;
-
-            const onMove = (ev: PointerEvent) => {
-                const dy = ev.clientY - startY;
-                maxAbsDy = Math.max(maxAbsDy, Math.abs(dy));
-                setOffsetY(clampPanelOffsetY(startOffset + dy));
-            };
-
-            let finished = false;
-
-            const cleanup = () => {
-                if (finished) return;
-                finished = true;
-                document.removeEventListener('pointermove', onMove, true);
-                document.removeEventListener('pointerup', onEnd, true);
-                document.removeEventListener('pointercancel', onEnd, true);
-                document.removeEventListener('lostpointercapture', onLostCapture, true);
-                try {
-                    el.releasePointerCapture(pointerId);
-                } catch {
-                    /* 이미 해제됨 */
-                }
-                void setPanelOffsetY(offsetYRef.current);
-            };
-
-            const onLostCapture = () => {
-                cleanup();
-            };
-
-            const onEnd = () => {
-                cleanup();
-                if (mode === 'mini' && maxAbsDy <= DRAG_CLICK_THRESHOLD_PX) {
-                    setIsExpanded(true);
-                }
-            };
-
-            try {
-                el.setPointerCapture(pointerId);
-            } catch {
-                /* 일부 환경 */
-            }
-
-            document.addEventListener('pointermove', onMove, true);
-            document.addEventListener('pointerup', onEnd, true);
-            document.addEventListener('pointercancel', onEnd, true);
-            document.addEventListener('lostpointercapture', onLostCapture, true);
-        },
-        [],
-    );
-
-    const onHeaderPointerDown = useCallback(
-        (e: React.PointerEvent) => startVerticalDrag(e, 'header'),
-        [startVerticalDrag],
-    );
-
-    const onMiniPointerDown = useCallback(
-        (e: React.PointerEvent) => startVerticalDrag(e, 'mini'),
-        [startVerticalDrag],
-    );
+    const {
+        activeTab,
+        setActiveTab,
+        effectiveExpanded,
+        showMiniOpenButton,
+        notice,
+        guide,
+        notify,
+        clearNotice,
+        clearGuide,
+        offsetY,
+        panelBodyContentRef,
+        bodyClipHeightPx,
+        bodyHeightTransitionOn,
+        collapsePanel,
+        onHeaderPointerDown,
+        onMiniPointerDown,
+    } = useFloatingPanel({
+        isVisible,
+        focusSearchSignal,
+        eventSettingAvailable,
+    });
 
     if (!isVisible) return null;
-
-    const showMiniOpenButton = eventSettingAvailable && !effectiveExpanded;
 
     return (
         <div
@@ -256,7 +59,7 @@ export function FloatingPanel({
                         className="genie-mini-btn genie-mini-btn--draggable"
                         aria-label="패널 열기"
                     >
-                        <ChevronLeft size={22} />
+                        <ChevronLeft size={20} aria-hidden="true" />
                     </motion.button>
                 )}
             </AnimatePresence>
@@ -268,19 +71,21 @@ export function FloatingPanel({
                         initial={{ x: 380, opacity: 0 }}
                         animate={{ x: 0, opacity: 1 }}
                         exit={{ x: 380, opacity: 0 }}
-                        transition={{ duration: 0.25, ease: 'easeInOut' }}
+                        transition={{ duration: 0.18, ease: 'easeOut' }}
                         className="genie-panel"
                     >
                         <div
                             className="genie-panel__toolbar genie-panel__toolbar--draggable"
                             onPointerDown={onHeaderPointerDown}
                         >
-                            <div className="genie-panel__tabs">
+                            <div className="genie-panel__tabs" role="tablist">
                                 <button
                                     type="button"
                                     onClick={() => setActiveTab('search')}
                                     onPointerDown={(e) => e.stopPropagation()}
                                     className={`genie-tab ${activeTab === 'search' ? 'genie-tab--active' : ''}`}
+                                    role="tab"
+                                    aria-selected={activeTab === 'search'}
                                 >
                                     검색
                                 </button>
@@ -289,6 +94,8 @@ export function FloatingPanel({
                                     onClick={() => setActiveTab('edit')}
                                     onPointerDown={(e) => e.stopPropagation()}
                                     className={`genie-tab ${activeTab === 'edit' ? 'genie-tab--active' : ''}`}
+                                    role="tab"
+                                    aria-selected={activeTab === 'edit'}
                                 >
                                     편집
                                 </button>
@@ -297,14 +104,18 @@ export function FloatingPanel({
                                 type="button"
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    setIsExpanded(false);
+                                    collapsePanel();
                                 }}
                                 onPointerDown={(e) => e.stopPropagation()}
                                 className="genie-panel__collapse"
                                 aria-label="패널 접기"
                                 title="접기"
                             >
-                                <ChevronRight size={16} strokeWidth={2.25} />
+                                <ChevronRight
+                                    size={16}
+                                    strokeWidth={2.25}
+                                    aria-hidden="true"
+                                />
                             </button>
                         </div>
 

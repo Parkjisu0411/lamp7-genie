@@ -1,6 +1,6 @@
 /** chrome.storage.local 키 — content / extension 컨텍스트 공통 */
 
-import { withExtensionContext } from '../shared/extensionContext';
+import { withExtensionContext } from './extensionContext';
 
 export const STORAGE_KEYS = {
     PANEL_OFFSET_Y: 'genie.panelOffsetY',

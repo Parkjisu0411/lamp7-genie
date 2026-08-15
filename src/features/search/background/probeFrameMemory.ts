@@ -1,4 +1,4 @@
-import { readFrameMemory } from './readFrameMemory';
+import { readFrameMemory } from '../../../shared/mainWorld/readFrameMemory';
 
 /**
  * probeFrameMemory 결과 리포트.

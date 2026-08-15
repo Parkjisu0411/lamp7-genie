@@ -4,16 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && npm run build:content && npm run build:background",
-    "build:content": "cross-env BUILD_TARGET=content vite build",
-    "build:background": "cross-env BUILD_TARGET=background vite build",
-    "watch": "npm run watch:content",
-    "watch:content": "cross-env BUILD_TARGET=content vite build --watch",
-    "watch:background": "cross-env BUILD_TARGET=background vite build --watch",
+    "build": "tsc -b && cross-env BUILD_TARGET=content vite build && cross-env BUILD_TARGET=background vite build",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
-    "lint": "eslint .",
-    "preview": "vite preview"
+    "lint": "eslint ."
   },
   "dependencies": {
     "lucide-react": "^1.8.0",

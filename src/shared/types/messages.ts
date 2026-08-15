@@ -16,15 +16,7 @@ export type MessageAction =
     | 'EDIT_COPY_SELECTED'
     | 'EDIT_PASTE_LOGICS'
     | 'EDIT_UI_SYNC'
-    /** Esc·패널 닫기: eventSetting iframe EDIT_STOP + top HIDE */
     | 'GENIE_DISMISS';
-
-export interface ExtensionMessage {
-    action: MessageAction;
-    // action별 payload shape은 각 사이트에서 캐스트로 해석.
-    // (추후 discriminated union 리팩토링 대상)
-    payload?: unknown;
-}
 
 export interface ExtensionResponse {
     success: boolean;
@@ -34,7 +26,6 @@ export interface ExtensionResponse {
 
 export type SearchMatchKind = 'event' | 'transaction' | 'condition' | 'variable';
 
-/** 편집/표시용 로직 타입. iteration(루프)·control 포함. loop→iteration, systemFunction→control 별칭. */
 export type LogicKind = SearchMatchKind | 'iteration' | 'control';
 
 export interface SearchFilters {
@@ -44,10 +35,6 @@ export interface SearchFilters {
     variable: boolean;
 }
 
-// 매칭이 발견된 필드 식별자.
-// 우선순위: varPrefix > displayText > 타입별 상세
-// displayText 이외의 필드로 매칭된 경우 snippet 내 하이라이트 위치를 특정할 수 없어
-// matchStart/matchEnd는 -1로 둔다 (UI에서 가드).
 export type SearchMatchField =
     | 'varPrefix'
     | 'displayText'
@@ -74,7 +61,6 @@ export interface SearchMatch {
     matchEnd: number;
     seq: string;
     matchedField: SearchMatchField;
-    // 실제로 쿼리가 매칭된 원본 필드 값. 툴팁에서 "어느 값이 걸렸는지" 노출용.
     matchedValue: string;
 }
 
@@ -91,7 +77,6 @@ export interface HighlightTargetsPayload {
     matches: SearchMatch[];
 }
 
-/** eventSetting 대상 iframe 존재 여부 (background → top frame). 미니 버튼 표시 여부에 사용 */
 export interface TargetAvailabilityPayload {
     available: boolean;
 }
@@ -101,7 +86,6 @@ export interface SearchStartResponseData {
     matches: SearchMatch[];
 }
 
-/** top frame 편집 탭 등 — iframe에서 Esc 등으로 편집 종료 시 동기화 */
 export interface EditUiSyncPayload {
     logicEditActive: boolean;
     selectedItems?: EditSelectionItem[];
@@ -150,3 +134,51 @@ export interface EditSelectionItem {
     seq: string;
     json: unknown;
 }
+
+type MessageWithoutPayload<A extends MessageAction> = {
+    action: A;
+};
+
+type MessageWithPayload<A extends MessageAction, P> = {
+    action: A;
+    payload: P;
+};
+
+export type ExtensionMessage =
+    | MessageWithoutPayload<'TOGGLE_PANEL'>
+    | MessageWithoutPayload<'HIDE_PANEL'>
+    | MessageWithoutPayload<'FOCUS_SEARCH'>
+    | MessageWithPayload<'TARGET_AVAILABILITY', TargetAvailabilityPayload>
+    | MessageWithoutPayload<'REQUEST_TARGET_AVAILABILITY'>
+    | MessageWithPayload<'SEARCH_START', SearchStartPayload>
+    | MessageWithPayload<'SEARCH_NAVIGATE', SearchNavigatePayload>
+    | MessageWithoutPayload<'SEARCH_CLEAR'>
+    | MessageWithPayload<'HIGHLIGHT_TARGETS', HighlightTargetsPayload>
+    | MessageWithoutPayload<'EDIT_START'>
+    | MessageWithoutPayload<'EDIT_STOP'>
+    | MessageWithoutPayload<'EDIT_NOTIFY_INACTIVE'>
+    | MessageWithPayload<'EDIT_SELECTION_CHANGED', EditSelectionChangedPayload>
+    | MessageWithPayload<'EDIT_DELETE_SELECTED', EditDeleteSelectedPayload>
+    | MessageWithPayload<'EDIT_COPY_SELECTED', EditCopySelectedPayload>
+    | MessageWithPayload<'EDIT_PASTE_LOGICS', EditPasteLogicsPayload>
+    | MessageWithPayload<'EDIT_UI_SYNC', EditUiSyncPayload>
+    | MessageWithoutPayload<'GENIE_DISMISS'>;
+
+export interface ExtensionResponseDataByAction {
+    REQUEST_TARGET_AVAILABILITY: TargetAvailabilityPayload;
+    SEARCH_START: SearchStartResponseData;
+    HIGHLIGHT_TARGETS: SearchStartResponseData;
+    EDIT_SELECTION_CHANGED: { count: number };
+    EDIT_COPY_SELECTED: EditCopySelectedResponseData;
+    EDIT_DELETE_SELECTED: EditDeleteSelectedResponseData;
+    EDIT_PASTE_LOGICS: EditPasteLogicsResponseData;
+}
+
+export type ExtensionResponseFor<A extends MessageAction> = Omit<
+    ExtensionResponse,
+    'data'
+> & {
+    data?: A extends keyof ExtensionResponseDataByAction
+        ? ExtensionResponseDataByAction[A]
+        : unknown;
+};

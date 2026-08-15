@@ -1,12 +1,10 @@
 /**
- * 특정 프레임의 MAIN world에서 함수를 실행하고 structured-clone된 결과를 반환.
+ * 특정 프레임의 MAIN world에서 함수를 실행하고 structured-clone 가능한 결과를 반환.
  *
  * 주의사항:
- * - fn은 직렬화되어 주입되므로 외부 클로저/import 참조 불가.
- *   필요한 값은 반드시 args로 넘길 것.
- * - fn 내부에서는 chrome.* API 접근 불가 (MAIN world는 페이지 컨텍스트).
- * - 리턴값은 structured clone 대상 - DOM element, 함수, 클래스 인스턴스 등은 불가.
- *   DOM을 넘겨야 하면 element에 data-* attribute를 부여하고 key(string)만 리턴할 것.
+ * - fn은 직렬화되어 주입되므로 외부 import/클로저 참조가 불가하다.
+ * - fn 내부에서는 chrome.* API에 접근할 수 없다.
+ * - 반환값은 DOM element, 함수, 클래스 인스턴스가 아닌 plain data여야 한다.
  */
 export async function readFrameMemory<TArgs extends unknown[], TResult>(
     tabId: number,
@@ -36,9 +34,7 @@ export async function readFrameMemory<TArgs extends unknown[], TResult>(
 }
 
 /**
- * 개발/탐색용: 대상 프레임의 window 객체에서 "흥미로워 보이는" 전역을 덤프.
- * - 일반적인 브라우저 빌트인은 휴리스틱으로 제외
- * - 배열/함수/비-object는 타입만 표기
+ * 개발/탐색용: 대상 프레임의 window 객체에서 사용자 전역으로 보이는 항목을 스캔한다.
  */
 export async function dumpFrameGlobals(
     tabId: number,
@@ -73,7 +69,7 @@ export async function dumpFrameGlobals(
                         out[key] = t;
                     }
                 } catch {
-                    // cross-origin 등으로 접근 불가한 항목은 건너뜀
+                    // cross-origin 등 접근 불가능한 항목은 건너뜀
                 }
             }
             return out;

@@ -29,18 +29,20 @@ export function injectEditStyles(doc: Document = document): void {
   height: 7px;
   border-radius: 50%;
   box-sizing: border-box;
-  border: none;
-  background: linear-gradient(145deg, #bae6fd 0%, #7dd3fc 100%);
-  box-shadow: 0 1px 3px rgba(56, 189, 248, 0.35);
+  border: 1px solid #b8c9f8;
+  background: #e8f0ff;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
 }
 .${EDIT_WRAP_ACTIVE_CLASS} .logic_seq_area li:not(:has(li)).${EDIT_SELECTED_CLASS}::before {
-  background: linear-gradient(145deg, #38bdf8 0%, #0ea5e9 100%);
-  box-shadow: 0 1px 4px rgba(14, 165, 233, 0.45);
+  border-color: #1d4ed8;
+  background: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
 }
 .${EDIT_SELECTED_CLASS} {
-  outline: none !important;
-  background-color: rgba(186, 230, 253, 0.58) !important;
-  box-shadow: none !important;
+  outline: 2px solid rgba(37, 99, 235, 0.26) !important;
+  outline-offset: 1px !important;
+  background-color: rgba(232, 240, 255, 0.82) !important;
+  box-shadow: inset 3px 0 0 #2563eb !important;
 }
 `;
     doc.head.appendChild(style);

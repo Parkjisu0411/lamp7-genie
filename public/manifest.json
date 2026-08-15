@@ -38,8 +38,8 @@
   "commands": {
     "focus-search": {
       "suggested_key": {
-        "default": "Ctrl+Shift+F",
-        "mac": "Command+Shift+F"
+        "default": "Alt+Shift+F",
+        "mac": "Alt+Shift+F"
       },
       "description": "지니 검색 패널 열고 검색창 포커스"
     }

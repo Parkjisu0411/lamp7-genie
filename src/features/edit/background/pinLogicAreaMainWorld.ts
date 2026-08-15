@@ -1,5 +1,6 @@
-import { readFrameMemory } from '../../search/background/readFrameMemory';
 import { DATA_ATTR_LOGIC_AREA_PIN } from '../../../shared/constants';
+import { LOGIC_EDITOR_HELPER_SOURCE } from '../../../shared/mainWorld/logicEditorSource';
+import { readFrameMemory } from '../../../shared/mainWorld/readFrameMemory';
 
 export type PinLogicAreaResult =
     | { ok: true }
@@ -17,7 +18,11 @@ export async function pinLogicAreaMainWorld(
     frameId: number,
 ): Promise<PinLogicAreaResult> {
     const attr = DATA_ATTR_LOGIC_AREA_PIN;
-    const outcome = await readFrameMemory(tabId, frameId, (pinAttr: string): PinOutcome => {
+    const outcome = await readFrameMemory(tabId, frameId, (pinAttr: string, helperSource: string): PinOutcome => {
+        type Helpers = {
+            readBinding(name: string): unknown;
+        };
+        const helpers = Function(`${helperSource}; return __lamp7GenieMainWorld;`)() as Helpers;
         try {
             document.querySelectorAll(`[${pinAttr}]`).forEach((n) => {
                 n.removeAttribute(pinAttr);
@@ -47,9 +52,8 @@ export async function pinLogicAreaMainWorld(
 
         let divTab: ((sel: string) => unknown) | null = null;
         try {
-            const w = window as unknown as Record<string, { divTab?: (s: string) => unknown }>;
             for (const key of ['$', 'jQuery'] as const) {
-                const host = w[key];
+                const host = helpers.readBinding(key) as { divTab?: (s: string) => unknown } | undefined;
                 if (host && typeof host.divTab === 'function') {
                     divTab = host.divTab.bind(host);
                     break;
@@ -73,7 +77,7 @@ export async function pinLogicAreaMainWorld(
 
         logicArea.setAttribute(pinAttr, '1');
         return 'ok';
-    }, [attr]);
+    }, [attr, LOGIC_EDITOR_HELPER_SOURCE]);
 
     if (outcome === null) {
         return { ok: false, error: '페이지에서 편집 핀을 설정하지 못했습니다.' };
