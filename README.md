@@ -48,9 +48,7 @@ LAMP7 `이벤트/트랜잭션 설정` 화면에서 로직 검색과 간단한 �
 - 로직 Prefix 검색 ex) logic18038
 - Event / Transaction / Variable 설정 항목 ID 검색
 
-<video controls width="720">
-  <source src="./assets/demo-search.mp4" type="video/mp4" />
-</video>
+![검색 데모](./assets/demo-search.gif)
 
 ### 편집
 
@@ -59,9 +57,7 @@ LAMP7 `이벤트/트랜잭션 설정` 화면에서 로직 검색과 간단한 �
 - 로직 삭제
 - 로직 복사/붙여넣기
 
-<video controls width="720">
-  <source src="./assets/demo-edit.mp4" type="video/mp4" />
-</video>
+![편집 데모](./assets/demo-edit.gif)
 
 ## 단축키
 
