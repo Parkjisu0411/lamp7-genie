@@ -31,10 +31,12 @@ LAMP7 `이벤트/트랜잭션 설정` 화면에서 로직 검색과 간단한 �
 
 ### 검색
 
-로직 이름이나 주요 ID를 입력해 원하는 로직을 빠르게 찾고, 검색 결과 위치로 바로 이동할 수 있습니다.
+생성된 코드에서 본 변수명, Transaction 호출 메소드명, Event/Variable ID 등을 검색하면 해당 로직 위치를 찾아줍니다.
 
-- 로직 Prefix 검색 ex) logic18038
-- Event / Transaction / Variable 설정 항목 ID 검색
+- 로직 Prefix ex) `logic18038`
+- Event / Transaction / Variable ID
+- Transaction 호출 메소드명
+- Condition / Parameter 값
 
 검색 데모
 
@@ -60,4 +62,3 @@ Chrome에서 단축키가 충돌하면 아래 화면에서 변경할 수 있습�
 ```text
 chrome://extensions/shortcuts
 ```
-
