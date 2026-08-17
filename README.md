@@ -38,7 +38,7 @@ LAMP7 `이벤트/트랜잭션 설정` 화면에서 로직 검색과 간단한 �
 - Transaction 호출 메소드명
 - Condition / Parameter 값
 
-검색 데모
+![검색 데모](./assets/demo-search.gif)
 
 ### 편집
 
@@ -47,7 +47,7 @@ LAMP7 `이벤트/트랜잭션 설정` 화면에서 로직 검색과 간단한 �
 - 로직 삭제
 - 로직 복사/붙여넣기
 
-편집 데모
+![편집 데모](./assets/demo-edit.gif)
 
 ## 단축키
 
