@@ -1,0 +1,4 @@
+interface:
+  display_name: "LAMP7 Genie Project Guide"
+  short_description: "Project rules for the LAMP7 Genie Chrome extension"
+  default_prompt: "Use this skill when modifying the LAMP7 Genie project."

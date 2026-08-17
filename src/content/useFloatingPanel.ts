@@ -83,18 +83,16 @@ export function useFloatingPanel({
     }, [effectiveExpanded]);
 
     useEffect(() => {
-        if (!isVisible || !effectiveExpanded) return;
+        if (!isVisible) return;
         const onKeyDown = (ev: KeyboardEvent) => {
             if (ev.key !== 'Escape') return;
-            const root = document.getElementById('lamp7-genie-root');
-            if (!root?.contains(ev.target as Node)) return;
             ev.preventDefault();
             ev.stopPropagation();
             sendRuntimeMessageQuietly({ action: 'GENIE_DISMISS' });
         };
         document.addEventListener('keydown', onKeyDown, true);
         return () => document.removeEventListener('keydown', onKeyDown, true);
-    }, [isVisible, effectiveExpanded]);
+    }, [isVisible]);
 
     useEffect(() => {
         if (focusSearchSignal <= 0 || !eventSettingAvailable) return;

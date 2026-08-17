@@ -169,6 +169,10 @@ export function useEditPanel({ notify, clearNotice }: UseEditPanelArgs) {
                     }
                     if (data && data.createdCount > 0) {
                         resetSelection(nextIndexFor(payloadLogics));
+                        if (data.errors.length === 0) {
+                            notify('success', `${data.createdCount}개 로직을 붙여넣었습니다.`);
+                            return;
+                        }
                         notify(
                             'error',
                             `${data.createdCount}개 붙여넣기, ${data.errors.length}개 실패했습니다.`,

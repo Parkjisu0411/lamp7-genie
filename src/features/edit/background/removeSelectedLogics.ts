@@ -1,13 +1,13 @@
 import type { EditDeleteSelectedResponseData } from '../../../shared/types/messages';
 import { LOGIC_EDITOR_HELPER_SOURCE } from '../../../shared/mainWorld/logicEditorSource';
+import type {
+    LogicEditorMainWorld,
+    MainWorldHelperSubset,
+} from '../../../shared/mainWorld/logicTypes';
 import { readFrameMemory } from '../../../shared/mainWorld/readFrameMemory';
 
 interface RemoveSelectedLogicsPayload {
     logicIds: string[];
-}
-
-interface LogicEditor {
-    removeLogic?: (logicId: string) => unknown;
 }
 
 export async function removeSelectedLogics(
@@ -19,11 +19,12 @@ export async function removeSelectedLogics(
         tabId,
         frameId,
         (payload: RemoveSelectedLogicsPayload, helperSource: string) => {
-            type Helpers = {
-                readBinding(name: string): unknown;
-            };
-            const helpers = Function(`${helperSource}; return __lamp7GenieMainWorld;`)() as Helpers;
-            const LogicEditor = helpers.readBinding('LogicEditor') as LogicEditor | undefined;
+            const helpers = Function(
+                `${helperSource}; return __lamp7GenieMainWorld;`,
+            )() as MainWorldHelperSubset<'readBinding'>;
+            const LogicEditor = helpers.readBinding('LogicEditor') as
+                | LogicEditorMainWorld
+                | undefined;
             if (!LogicEditor || typeof LogicEditor.removeLogic !== 'function') return null;
 
             const errors: Array<{ logicId: string; error: string }> = [];

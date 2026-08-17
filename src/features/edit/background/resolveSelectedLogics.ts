@@ -1,4 +1,8 @@
 import { LOGIC_EDITOR_HELPER_SOURCE } from '../../../shared/mainWorld/logicEditorSource';
+import type {
+    LogicEditorMainWorld,
+    MainWorldHelpers,
+} from '../../../shared/mainWorld/logicTypes';
 import { readFrameMemory } from '../../../shared/mainWorld/readFrameMemory';
 import { mainWorldFunctionSource } from '../../../shared/mainWorld/sourceBuilder';
 import type { EditSelectionItem } from '../../../shared/types/messages';
@@ -6,10 +10,6 @@ import {
     resolveSelectedLogicItems,
     type ResolveSelectedLogicsPayload,
 } from './selectedLogicReader';
-
-interface LogicEditor {
-    getAll(): unknown[];
-}
 
 export async function resolveSelectedLogics(
     tabId: number,
@@ -24,21 +24,12 @@ export async function resolveSelectedLogics(
             helperSource: string,
             readerSource: string,
         ) => {
-            type Helpers = {
-                readBinding(name: string): unknown;
-                unwrapElement(raw: unknown): Element | null;
-                asStringId(value: unknown): string;
-                parseLogicKind(value: unknown): unknown;
-                kindFromJson(json: unknown): unknown;
-                toPlainObject(value: unknown): Record<string, unknown> | null;
-                callMaybe(fn: unknown, thisArg: unknown): unknown;
-            };
             const helpers = Function(
                 `${helperSource}; return __lamp7GenieMainWorld;`,
-            )() as Helpers;
+            )() as MainWorldHelpers;
             const reader = Function(`return (${readerSource});`)() as typeof resolveSelectedLogicItems;
             const LogicEditor = helpers.readBinding('LogicEditor') as
-                | LogicEditor
+                | LogicEditorMainWorld
                 | undefined;
             if (!LogicEditor) return null;
 

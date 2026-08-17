@@ -1,42 +1,21 @@
+import type {
+    Lamp7Logic,
+    MainWorldHelperSubset,
+} from '../../../shared/mainWorld/logicTypes';
 import type { LogicKind } from '../../../shared/types/messages';
 
 export interface ResolveSelectedLogicsPayload {
     logicIds: string[];
 }
 
-interface SelectedLogic {
-    id?: unknown;
-    logicId?: unknown;
-    _id?: unknown;
-    seq?: unknown;
-    parentId?: unknown;
-    type?: unknown;
-    varPrefix?: unknown;
-    event?: unknown;
-    transaction?: unknown;
-    condition?: unknown;
-    variable?: unknown;
-    iteration?: unknown;
-    loop?: unknown;
-    getId?: () => unknown;
-    getElement?: () => unknown;
-    getDisplayText?: () => unknown;
-    getType?: () => unknown;
-    getVarPrefix?: () => unknown;
-    toJson?: () => unknown;
-    toJSON?: () => unknown;
-    getJson?: () => unknown;
-    serialize?: () => unknown;
-}
-
-interface SelectedLogicReaderHelpers {
-    unwrapElement(raw: unknown): Element | null;
-    asStringId(value: unknown): string;
-    parseLogicKind(value: unknown): LogicKind | null;
-    kindFromJson(json: unknown): LogicKind | null;
-    toPlainObject(value: unknown): Record<string, unknown> | null;
-    callMaybe(fn: unknown, thisArg: unknown): unknown;
-}
+type SelectedLogicReaderHelpers = MainWorldHelperSubset<
+    | 'unwrapElement'
+    | 'asStringId'
+    | 'parseLogicKind'
+    | 'kindFromJson'
+    | 'toPlainObject'
+    | 'callMaybe'
+>;
 
 export type SelectedLogicItemForMainWorld = {
     id: string;
@@ -49,11 +28,11 @@ export type SelectedLogicItemForMainWorld = {
 };
 
 export function resolveSelectedLogicItems(
-    logics: SelectedLogic[],
+    logics: Lamp7Logic[],
     payload: ResolveSelectedLogicsPayload,
     helpers: SelectedLogicReaderHelpers,
 ): SelectedLogicItemForMainWorld[] {
-    const logicIdsFor = (logic: SelectedLogic): string[] => {
+    const logicIdsFor = (logic: Lamp7Logic): string[] => {
         const ids: string[] = [];
         const push = (value: unknown) => {
             const id = helpers.asStringId(value);
@@ -78,14 +57,14 @@ export function resolveSelectedLogicItems(
         return ids;
     };
 
-    const byId = new Map<string, SelectedLogic>();
+    const byId = new Map<string, Lamp7Logic>();
     for (const logic of logics) {
         for (const id of logicIdsFor(logic)) {
             if (!byId.has(id)) byId.set(id, logic);
         }
     }
 
-    const extractJson = (logic: SelectedLogic): Record<string, unknown> | null => {
+    const extractJson = (logic: Lamp7Logic): Record<string, unknown> | null => {
         const methodCandidates = [
             logic.toJson,
             logic.toJSON,

@@ -1,15 +1,15 @@
 import { LOGIC_EDITOR_HELPER_SOURCE } from '../../../shared/mainWorld/logicEditorSource';
 import { readFrameMemory } from '../../../shared/mainWorld/readFrameMemory';
 import { mainWorldFunctionSource } from '../../../shared/mainWorld/sourceBuilder';
+import type {
+    LogicEditorMainWorld,
+    MainWorldHelperSubset,
+} from '../../../shared/mainWorld/logicTypes';
 import type { SearchMatch } from '../../../shared/types/messages';
 import {
     queryLogicEditorMatches,
     type QueryPayload,
 } from './searchMatcher';
-
-interface LogicEditor {
-    getAll(): unknown[];
-}
 
 export type { QueryPayload };
 
@@ -29,20 +29,15 @@ export async function queryFrameData(
                 matcherSource: string;
             },
         ) => {
-            type Helpers = {
-                readBinding(name: string): unknown;
-                unwrapElement(raw: unknown): Element | null;
-            };
-
             const helpers = Function(
                 `${ctx.helperSource}; return __lamp7GenieMainWorld;`,
-            )() as Helpers;
+            )() as MainWorldHelperSubset<'readBinding' | 'unwrapElement'>;
             const matcher = Function(
                 `return (${ctx.matcherSource});`,
             )() as typeof queryLogicEditorMatches;
 
             const LogicEditor = helpers.readBinding('LogicEditor') as
-                | LogicEditor
+                | LogicEditorMainWorld
                 | undefined;
             if (!LogicEditor) return [];
 

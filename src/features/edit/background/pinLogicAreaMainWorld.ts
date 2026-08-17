@@ -1,5 +1,9 @@
 import { DATA_ATTR_LOGIC_AREA_PIN } from '../../../shared/constants';
 import { LOGIC_EDITOR_HELPER_SOURCE } from '../../../shared/mainWorld/logicEditorSource';
+import type {
+    DivTabHostMainWorld,
+    MainWorldHelperSubset,
+} from '../../../shared/mainWorld/logicTypes';
 import { readFrameMemory } from '../../../shared/mainWorld/readFrameMemory';
 
 export type PinLogicAreaResult =
@@ -19,10 +23,9 @@ export async function pinLogicAreaMainWorld(
 ): Promise<PinLogicAreaResult> {
     const attr = DATA_ATTR_LOGIC_AREA_PIN;
     const outcome = await readFrameMemory(tabId, frameId, (pinAttr: string, helperSource: string): PinOutcome => {
-        type Helpers = {
-            readBinding(name: string): unknown;
-        };
-        const helpers = Function(`${helperSource}; return __lamp7GenieMainWorld;`)() as Helpers;
+        const helpers = Function(
+            `${helperSource}; return __lamp7GenieMainWorld;`,
+        )() as MainWorldHelperSubset<'readBinding'>;
         try {
             document.querySelectorAll(`[${pinAttr}]`).forEach((n) => {
                 n.removeAttribute(pinAttr);
@@ -53,7 +56,9 @@ export async function pinLogicAreaMainWorld(
         let divTab: ((sel: string) => unknown) | null = null;
         try {
             for (const key of ['$', 'jQuery'] as const) {
-                const host = helpers.readBinding(key) as { divTab?: (s: string) => unknown } | undefined;
+                const host = helpers.readBinding(key) as
+                    | DivTabHostMainWorld
+                    | undefined;
                 if (host && typeof host.divTab === 'function') {
                     divTab = host.divTab.bind(host);
                     break;

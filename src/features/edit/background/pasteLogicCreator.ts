@@ -1,3 +1,10 @@
+import type {
+    CreatedLamp7Logic,
+    LogicEditorMainWorld,
+    LogicRendererMainWorld,
+    LogicUtilsMainWorld,
+    MainWorldHelperSubset,
+} from '../../../shared/mainWorld/logicTypes';
 import type { EditPasteLogicsResponseData } from '../../../shared/types/messages';
 
 export interface PasteCopiedLogicsPayload {
@@ -12,33 +19,7 @@ type CopiedLogicJson = {
     [key: string]: unknown;
 };
 
-interface CreatedLogic {
-    getId: () => string;
-    validateLoadCompelete?: () => boolean;
-}
-
-interface LogicEditorForPaste {
-    createLogic: (
-        id: string,
-        type: string,
-        varPrefix: string,
-        raw: Record<string, unknown>,
-    ) => CreatedLogic;
-    resetLogicLevelAndSeqAll?: () => void;
-}
-
-interface LogicRendererForPaste {
-    renderLogics: (logics: unknown) => void;
-}
-
-interface LogicUtilsForPaste {
-    showError?: (logic: unknown) => void;
-}
-
-interface PasteHelpers {
-    readBinding(name: string): unknown;
-    asStringId(value: unknown): string;
-}
+type PasteHelpers = MainWorldHelperSubset<'readBinding' | 'asStringId'>;
 
 export function pasteCopiedLogicsInMainWorld(
     payload: PasteCopiedLogicsPayload,
@@ -95,13 +76,13 @@ export function pasteCopiedLogicsInMainWorld(
         };
 
         const LogicEditor = helpers.readBinding('LogicEditor') as
-            | LogicEditorForPaste
+            | LogicEditorMainWorld
             | undefined;
         const LogicRenderer = helpers.readBinding('LogicRenderer') as
-            | LogicRendererForPaste
+            | LogicRendererMainWorld
             | undefined;
         const LogicUtils = helpers.readBinding('LogicUtils') as
-            | LogicUtilsForPaste
+            | LogicUtilsMainWorld
             | undefined;
 
         if (!LogicEditor) {
@@ -129,7 +110,7 @@ export function pasteCopiedLogicsInMainWorld(
                 .filter((id) => id.length > 0),
         );
         const oldIdToNewId = new Map<string, string>();
-        const createdLogics: CreatedLogic[] = [];
+        const createdLogics: CreatedLamp7Logic[] = [];
         const errors: Array<{ oldId: string; error: string }> = [];
         let createdCount = 0;
 
