@@ -1,6 +1,6 @@
 # LAMP7 Genie
 
-LAMP7 `eventSetting` 화면에서 로직 검색과 간단한 편집 작업을 돕는 Chrome Extension입니다.
+LAMP7 `이벤트/트랜잭션 설정` 화면에서 로직 검색과 간단한 편집 작업을 돕는 Chrome Extension입니다.
 
 ## 목차
 
@@ -23,7 +23,7 @@ LAMP7 `eventSetting` 화면에서 로직 검색과 간단한 편집 작업을 �
 3. 오른쪽 상단의 **개발자 모드**를 켭니다.
 4. **압축해제된 확장 프로그램을 로드합니다**를 클릭합니다.
 5. 프로젝트의 `dist` 폴더를 선택합니다.
-6. LAMP7 `eventSetting` 화면에서 확장 프로그램 아이콘을 클릭해 패널을 엽니다.
+6. LAMP7 `이벤트/트랜잭션 설정` 화면에서 확장 프로그램 아이콘을 클릭해 패널을 엽니다.
 
 ### 빌드된 압축 파일로 설치
 
@@ -37,7 +37,7 @@ LAMP7 `eventSetting` 화면에서 로직 검색과 간단한 편집 작업을 �
 3. 오른쪽 상단의 **개발자 모드**를 켭니다.
 4. **압축해제된 확장 프로그램을 로드합니다**를 클릭합니다.
 5. 압축 해제한 `dist` 폴더를 선택합니다.
-6. LAMP7 `eventSetting` 화면에서 확장 프로그램 아이콘을 클릭해 패널을 엽니다.
+6. LAMP7 `이벤트/트랜잭션 설정` 화면에서 확장 프로그램 아이콘을 클릭해 패널을 엽니다.
 
 ## 기능
 
@@ -45,14 +45,12 @@ LAMP7 `eventSetting` 화면에서 로직 검색과 간단한 편집 작업을 �
 
 로직 이름이나 주요 ID를 입력해 원하는 로직을 빠르게 찾고, 검색 결과 위치로 바로 이동할 수 있습니다.
 
-- 로직 이름 검색
-- Event / Transaction / Variable 관련 ID 검색
-- Condition parameter 값 검색
-- 검색 결과 위치로 이동
+- 로직 Prefix 검색 ex) logic18038
+- Event / Transaction / Variable 설정 항목 ID 검색
 
-#### 검색 데모
-
-
+<video controls width="720">
+  <source src="./assets/demo-search.mp4" type="video/mp4" />
+</video>
 
 ### 편집
 
@@ -61,9 +59,9 @@ LAMP7 `eventSetting` 화면에서 로직 검색과 간단한 편집 작업을 �
 - 로직 삭제
 - 로직 복사/붙여넣기
 
-#### 편집 데모
-
-
+<video controls width="720">
+  <source src="./assets/demo-edit.mp4" type="video/mp4" />
+</video>
 
 ## 단축키
 
@@ -78,4 +76,3 @@ Chrome에서 단축키가 충돌하면 아래 화면에서 변경할 수 있습�
 ```text
 chrome://extensions/shortcuts
 ```
-
