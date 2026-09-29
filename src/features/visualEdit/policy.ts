@@ -16,7 +16,7 @@ export function buildSelectionPolicy(records: VisualComponentRecord[]) {
         ['grid', 'grid-compo'].includes(record.type) || has(record, 'grid-compo');
     const isWholeComponent = (record: VisualComponentRecord) =>
         isGrid(record) ||
-        ['tree-container', 'manual-tree-container'].includes(record.type) ||
+        ['tree-container', 'manual-tree-container', 'cascader-compo'].includes(record.type) ||
         [
             'tree-container',
             'manual-tree-container',
@@ -28,6 +28,7 @@ export function buildSelectionPolicy(records: VisualComponentRecord[]) {
             'checkbox-compo',
             'repeat-checkbox-compo',
             'dropdown-compo',
+            'cascader-compo',
         ].some((name) => has(record, name));
     const isExcludedTool = (record: VisualComponentRecord) =>
         ['table-page', 'pagination', 'page-option', 'node-level-input'].includes(record.type) ||
@@ -53,9 +54,21 @@ export function buildSelectionPolicy(records: VisualComponentRecord[]) {
     // These parts cannot become standalone units even if a malformed tree loses its owner.
     // Dropdown's native type is shared by the root, menu, group and button: only its root class identifies ownership.
     const isInternalPart = (record: VisualComponentRecord) =>
-        ['tree-node', 'manual-tree-node'].includes(record.type) ||
+        [
+            'tree-node',
+            'manual-tree-node',
+            'cascader-node',
+            'cascader-item',
+            'cascader-list',
+            'cascader-container',
+            'cascader-select',
+        ].includes(record.type) ||
         (record.type === 'dropdown' && !has(record, 'dropdown-compo')) ||
         [
+            'cascader-container',
+            'cascader-list',
+            'cascader-item',
+            'cascader-select',
             'tree-node',
             'manual-tree-node',
             'duration-date-value-compo',

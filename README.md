@@ -77,6 +77,7 @@ LAMP7의 **화면 설계(Visual editor)**와 **이벤트/트랜잭션 설정(Log
 | 컴포넌트 | 선택 단위 |
 | --- | --- |
 | Grid | Grid 전체. Col·머리글·Cell은 개별 선택 불가 |
+| Cascader | 본체 전체. 내부 입력부·목록·노드는 개별 선택 불가 |
 | Tree / Manual Tree | 트리 전체. 개별 노드는 선택 불가 |
 | 기간 입력 | From / To를 포함한 본체 |
 | DataSelect / InputGroup | 내부 버튼을 포함한 본체 |

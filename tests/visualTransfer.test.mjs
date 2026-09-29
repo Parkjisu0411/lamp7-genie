@@ -16,6 +16,30 @@ const clipboard = (...nodes) => ({ kind: 'lamp7-genie/visual', version: 1, id: '
     roots: nodes.map(n => ({ node: n, type: 'Row', label: n.key, eid: n.attributes.eid, parentRole: 'screen', placement: { draggable: '.container-fluid,.container-content', textable: false } })), images: {}, tables: [] });
 const rename = id => `${id}1`;
 
+test('Cascader follows native Row placement, adds only a Row at root and rejects internal paste locations',async()=>{
+    const data=clipboard(node('cas',{classes:['form-col','cascader-compo'],data:{type:'cascader-compo',droppable:false},children:[
+        node('panel',{classes:['cascader-container'],data:{type:'none',droppable:true},children:[node('item',{classes:['cascader-item'],data:{type:'cascader-node'}})]}),
+    ]}));
+    data.roots[0].placement.draggable='.container-fluid,.container-content,.form-row:not(.tit-wrap)';
+    const f=fixture();
+    const out=await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:data,position:'inside'});
+    assert.equal(out.error,undefined);
+    const addedRow=f.root.get('components').models.at(-1),cas=addedRow.get('components').models[0],panel=cas.get('components').models[0],item=panel.get('components').models[0];
+    assert.ok(addedRow.getEl().matches('.form-row'));
+    assert.ok(cas.getEl().matches('.cascader-compo'),'no extra Col wrapper');
+    assert.equal(visualPlacement(data.roots,addedRow,'inside'),true);
+    assert.equal(visualPlacement(data.roots,cas,'after'),true);
+    for(const destination of [cas,panel,item]) assert.equal(visualPlacement(data.roots,destination,'inside'),false);
+    assert.equal(visualPlacement(data.roots,item,'after'),false);
+    const title=fixture({children:[node('title',{classes:['form-row','tit-wrap'],data:{droppable:true}})]});
+    assert.equal(visualPlacement(data.roots,title.root.get('components').models[0],'inside'),false);
+    const col=fixture({children:[node('col',{classes:['form-col','multi-col'],data:{droppable:true}})]});
+    assert.equal(visualPlacement(data.roots,col.root.get('components').models[0],'inside'),false);
+    const legacy=clipboard(node('orphan',{classes:['cascader-item'],data:{type:'cascader-node'}}));
+    legacy.roots[0].placement.draggable=true;
+    assert.equal(visualPlacement(legacy.roots,f.root,'inside'),false,'old node-only clipboard is not pasted alone');
+});
+
 test('session lookup uses the page ajax transport asynchronously once and exposes HTTP failures', async () => {
     const f = fixture();
     const result = await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:clipboard(node('a')),position:'inside'});

@@ -16,12 +16,13 @@ export function visualPlacement(
 ): boolean {
     const parent = position === 'inside' ? target : target?.parent?.();
     const el = parent?.getEl?.();
-    if (!roots.length || !parent || !el?.isConnected || !el.classList || !parent.get('components')) return false;
+    if (!roots.length || !parent || !el?.isConnected || !el.classList || !parent.get('components'))
+        return false;
     // These structures are edited as a whole by Genie. Native grid-cell moves also rebuild
     // repeated rows, so direct append into one physical cell is not a valid clipboard operation.
     if (
         el.closest(
-            '.grid-compo,.tree-container,.manual-tree-container,.duration-date-compo,.dataselect-compo,.inputgroup-compo,.radio-compo,.checkbox-compo,.dropdown-compo,.cascader-container,.repeat-radio-compo,.repeat-checkbox-compo',
+            '.grid-compo,.tree-container,.manual-tree-container,.duration-date-compo,.dataselect-compo,.inputgroup-compo,.radio-compo,.checkbox-compo,.dropdown-compo,.cascader-compo,.cascader-container,.cascader-list,.cascader-item,.cascader-select,.repeat-radio-compo,.repeat-checkbox-compo',
         )
     )
         return false;
@@ -62,6 +63,20 @@ export function visualPlacement(
     }
     return roots.every((root) => {
         const n = root.node;
+        // Older clipboard entries may contain a Cascader node without its owner.
+        if (
+            [
+                'cascader-node',
+                'cascader-item',
+                'cascader-list',
+                'cascader-container',
+                'cascader-select',
+            ].includes(String(n.data.type)) ||
+            ['cascader-container', 'cascader-list', 'cascader-item', 'cascader-select'].some((c) =>
+                has(n, c),
+            )
+        )
+            return false;
         const draggable = root.placement?.draggable;
         if (!match(el, draggable)) return false;
         // Detached DOM is only a CSS-selector probe, never an editor model or live canvas node.
@@ -176,6 +191,7 @@ export function visualPasteWrappers(
         'tab-group-container',
         'sub-screen-tab-group-container',
         'form-col',
+        'cascader-compo',
         'comment-container',
     ].some(has);
     const form = [

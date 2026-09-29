@@ -45,7 +45,7 @@ test('duration from/to are one unit per actual container, never paired by eID su
 
 test('DataSelect, InputGroup, Radio, Checkbox and Dropdown parts never become separate units', () => {
     for (const className of ['dataselect-compo', 'inputgroup-compo', 'radio-compo', 'checkbox-compo',
-        'repeat-radio-compo', 'repeat-checkbox-compo', 'dropdown-compo']) {
+        'repeat-radio-compo', 'repeat-checkbox-compo', 'dropdown-compo', 'cascader-compo']) {
         const type = className === 'dropdown-compo' ? 'dropdown' : 'col-compo';
         const selection = build(record('control', 'row', type, [className]),
             record('group', 'control', 'dropdown', ['dropdown-group']),
@@ -62,7 +62,7 @@ test('DataSelect, InputGroup, Radio, Checkbox and Dropdown parts never become se
 });
 
 test('protected whole components and orphaned internal branches fail closed', () => {
-    for (const className of ['manual-tree-container', 'duration-date-compo', 'dataselect-compo', 'dropdown-compo']) {
+    for (const className of ['manual-tree-container', 'duration-date-compo', 'dataselect-compo', 'dropdown-compo', 'cascader-compo']) {
         const selection = build(record('control', 'row', 'col-compo', [className], {
             structure: { tag: 'DIV', classes: [className], removable: false },
         }), record('child', 'control', 'text-compo'));
@@ -70,7 +70,7 @@ test('protected whole components and orphaned internal branches fail closed', ()
         assert.deepEqual([...selection.units.keys()], ['row']);
     }
     for (const partClass of ['manual-tree-node', 'duration-date-value-compo', 'dataselect-btn-compo',
-        'inputgroup-btn-compo', 'form-check-label', 'dropdown-group']) {
+        'inputgroup-btn-compo', 'form-check-label', 'dropdown-group', 'cascader-container', 'cascader-list', 'cascader-item', 'cascader-select']) {
         const selection = build(record('part', 'row', 'col-compo', [partClass], { ownerModelId: 'row' }),
             record('inner', 'part', 'text-compo'), record('ordinary-col', 'row', 'col'));
         assert.equal(selection.canonical('part'), undefined);
@@ -100,17 +100,17 @@ test('paging and linked Grid tools exclude their captions too, without selecting
     assert.equal(selection.canonical('input-with-reference'), 'input-with-reference', 'elList alone must not block regular data fields');
 });
 
-test('nested compound components stay in their outer editing unit; Tab and Cascader policy is unchanged', () => {
+test('nested compound components stay in their outer editing unit; Tab stays independent and Cascader is a whole unit', () => {
     const selection = build(record('grid', 'row', 'grid-compo'),
         record('tree', 'grid', 'manual-tree-container'), record('node', 'tree', 'manual-tree-node'),
-        record('tab', 'row', 'tab'), record('cascader', 'row', 'cascader-container'),
+        record('tab', 'row', 'tab'), record('cascader', 'row', 'cascader-compo', ['form-col', 'cascader-compo']),
         record('list', 'cascader', 'cascader-list', [], { structure: { tag: 'UL', classes: [], removable: false } }),
         record('item', 'list', 'cascader-item'));
     assert.equal(selection.canonical('node'), 'grid');
     assert.equal(selection.units.has('tree'), false);
     assert.equal(selection.canonical('tab'), 'tab');
-    assert.equal(selection.canonical('item'), 'item');
-    assert.equal(selection.canonical('list'), undefined);
+    assert.equal(selection.canonical('item'), 'cascader');
+    assert.equal(selection.canonical('list'), 'cascader');
 });
 
 test('custom buttons with stale elList remain selectable while native Grid button types stay protected', () => {
