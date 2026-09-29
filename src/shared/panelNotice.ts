@@ -7,4 +7,3 @@ export interface PanelNotice {
 }
 
 export type NotifyPanel = (kind: NoticeKind, message: string) => void;
-export type SetPanelGuide = (message: string) => void;

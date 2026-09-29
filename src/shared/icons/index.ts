@@ -1,5 +1,5 @@
 import type { FunctionComponent, SVGProps } from 'react';
-import type { LogicKind, SearchMatchKind } from '../types/messages';
+import type { LogicKind } from '../types/messages';
 import ConditionIcon from './condition.svg?react';
 import ControlIcon from './control.svg?react';
 import EventIcon from './event.svg?react';
@@ -17,14 +17,6 @@ export const KIND_ICON: Record<LogicKind, IconComponent> = {
     variable: VariableIcon,
     iteration: LoopIcon,
     control: ControlIcon,
-};
-
-/** 검색 필터에 쓰는 타입만 (iteration/control 제외) */
-export const SEARCH_KIND_ICON: Record<SearchMatchKind, IconComponent> = {
-    event: EventIcon,
-    transaction: TransactionIcon,
-    condition: ConditionIcon,
-    variable: VariableIcon,
 };
 
 export {

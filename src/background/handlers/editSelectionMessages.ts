@@ -1,23 +1,26 @@
 import { resolveSelectedLogics } from '../../features/edit/background/resolveSelectedLogics';
+import type { TargetContext } from '../../shared/targets/types';
 import type {
     EditUiSyncPayload,
     ExtensionMessage,
     ExtensionResponse,
 } from '../../shared/types/messages';
 import { safeSendToTopFrame } from '../messaging';
+import { isCurrentTarget } from '../targetState';
 
-type EditSelectionChangedMessage = Extract<
-    ExtensionMessage,
-    { action: 'EDIT_SELECTION_CHANGED' }
->;
+type EditSelectionChangedMessage = Extract<ExtensionMessage, { action: 'EDIT_SELECTION_CHANGED' }>;
 
 export async function handleEditNotifyInactive(
     tabId: number,
+    target: TargetContext,
+    modeId?: string,
 ): Promise<ExtensionResponse> {
     await safeSendToTopFrame(tabId, {
         action: 'EDIT_UI_SYNC',
+        targetSessionId: target.sessionId,
         payload: {
             logicEditActive: false,
+            modeId,
             selectedItems: [],
         } satisfies EditUiSyncPayload,
     });
@@ -28,6 +31,7 @@ export async function handleEditSelectionChanged(
     tabId: number,
     sender: chrome.runtime.MessageSender,
     message: EditSelectionChangedMessage,
+    target: TargetContext,
 ): Promise<ExtensionResponse> {
     const frameId = sender.frameId;
     if (typeof frameId !== 'number') {
@@ -37,13 +41,14 @@ export async function handleEditSelectionChanged(
         };
     }
 
-    const logicIds = message.payload.logicIds.filter(
-        (id): id is string => typeof id === 'string',
-    );
-    const selectedItems = await resolveSelectedLogics(tabId, frameId, logicIds);
+    const logicIds = message.payload.logicIds.filter((id): id is string => typeof id === 'string');
+    const selectedItems = await resolveSelectedLogics(tabId, frameId, logicIds, target.documentId);
+    if (!isCurrentTarget(tabId, target.sessionId))
+        return { success: false, error: '대상 화면이 변경되었습니다.' };
     if (!selectedItems) {
         await safeSendToTopFrame(tabId, {
             action: 'EDIT_UI_SYNC',
+            targetSessionId: target.sessionId,
             payload: {
                 logicEditActive: true,
                 selectedItems: [],
@@ -58,6 +63,7 @@ export async function handleEditSelectionChanged(
 
     await safeSendToTopFrame(tabId, {
         action: 'EDIT_UI_SYNC',
+        targetSessionId: target.sessionId,
         payload: {
             logicEditActive: true,
             selectedItems,

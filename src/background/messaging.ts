@@ -15,12 +15,13 @@ export function sendToFrame(
     tabId: number,
     frameId: number,
     message: ExtensionMessage,
+    documentId?: string,
 ): Promise<ExtensionResponse> {
     return new Promise((resolve) => {
         chrome.tabs.sendMessage(
             tabId,
             message,
-            { frameId },
+            documentId ? { documentId } : { frameId },
             (response: ExtensionResponse | undefined) => {
                 if (chrome.runtime.lastError) {
                     resolve({

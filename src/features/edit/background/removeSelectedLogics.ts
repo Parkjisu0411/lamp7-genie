@@ -14,6 +14,7 @@ export async function removeSelectedLogics(
     tabId: number,
     frameId: number,
     logicIds: string[],
+    documentId?: string,
 ): Promise<EditDeleteSelectedResponseData | null> {
     return readFrameMemory(
         tabId,
@@ -47,5 +48,6 @@ export async function removeSelectedLogics(
             return { deletedCount, errors };
         },
         [{ logicIds }, LOGIC_EDITOR_HELPER_SOURCE],
+        documentId,
     );
 }

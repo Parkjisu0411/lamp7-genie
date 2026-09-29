@@ -1,0 +1,7 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><title>Genie 공통 편집 UI 검증</title>
+<style>
+body{margin:0;font:14px/1.5 sans-serif;background:#f1f5f9;color:#334155}header{height:56px;box-sizing:border-box;display:flex;align-items:center;gap:20px;padding:12px 24px;background:white;border-bottom:1px solid #cbd5e1}header h1{font-size:16px;margin:0}#editor-target{display:block;box-sizing:border-box;width:100%;height:calc(100vh - 90px);border:0}#checks{margin:8px 24px;font-size:12px}button{cursor:pointer}
+</style>
+<header><h1>Lamp7 Genie · 공통 편집 검증</h1><button id="verify">상태 확인</button><button id="dismiss">확장 닫기</button><button id="reopen">확장 열기</button><button id="narrow">좁은 영역</button></header>
+<iframe id="editor-target" title="테스트 편집 화면"></iframe><div id="checks" role="status">준비 중…</div>
+<div id="lamp7-genie-root"></div><script type="module" src="./edit-workspace.jsx"></script></html>

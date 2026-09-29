@@ -17,6 +17,7 @@ export async function queryFrameData(
     tabId: number,
     frameId: number,
     payload: QueryPayload,
+    documentId?: string,
 ): Promise<SearchMatch[] | null> {
     return readFrameMemory(
         tabId,
@@ -59,5 +60,6 @@ export async function queryFrameData(
                 matcherSource: mainWorldFunctionSource(queryLogicEditorMatches),
             },
         ],
+        documentId,
     ) as Promise<SearchMatch[] | null>;
 }

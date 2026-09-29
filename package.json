@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test": "node --import ./tests/register.mjs --test tests/*.test.mjs",
     "build": "tsc -b && cross-env BUILD_TARGET=content vite build && cross-env BUILD_TARGET=background vite build",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "lint": "eslint ."

@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { KIND_ICON } from '../../shared/icons';
 import type { NotifyPanel } from '../../shared/panelNotice';
 import type { SearchMatch, SearchMatchField } from '../../shared/types/messages';
@@ -77,6 +78,12 @@ export function SearchPanel(props: SearchPanelProps) {
         handleResultClick,
         toggleFilter,
     } = useSearchPanel(props);
+    const resultList = useRef<HTMLUListElement>(null);
+    useEffect(() => {
+        resultList.current
+            ?.querySelector('[aria-current="true"]')
+            ?.scrollIntoView({ block: 'nearest' });
+    }, [currentIndex, matches]);
 
     return (
         <div className="panel">
@@ -85,7 +92,8 @@ export function SearchPanel(props: SearchPanelProps) {
                     ref={inputRef}
                     className="panel__input"
                     type="text"
-                    placeholder="검색어를 입력하세요"
+                    aria-label="로직 검색어"
+                    placeholder="ID · 로직 이름 · 값 검색"
                     value={query}
                     onChange={(e) => handleQueryChange(e.target.value)}
                     onKeyDown={handleKeyDown}
@@ -109,10 +117,11 @@ export function SearchPanel(props: SearchPanelProps) {
                 </button>
             </div>
 
-            <div className="panel__filters">
+            <div className="panel__filters" aria-label="검색 범위">
                 {(Object.keys(FILTER_LABELS) as FilterKey[]).map((key) => (
                     <button
                         key={key}
+                        aria-pressed={filters[key]}
                         onClick={() => toggleFilter(key)}
                         className={`panel__filter-btn ${filters[key] ? 'panel__filter-btn--active' : ''}`}
                     >
@@ -121,57 +130,68 @@ export function SearchPanel(props: SearchPanelProps) {
                 ))}
             </div>
 
+            <div className="panel__results-header" role="status" aria-live="polite">
+                <span>
+                    {isSearching
+                        ? '검색 중…'
+                        : matches.length
+                          ? `${currentIndex + 1} / ${matches.length}개 항목`
+                          : searched
+                            ? '검색 결과 없음'
+                            : '검색어 입력'}
+                </span>
+                {!!matches.length && (
+                    <div className="panel__results-nav">
+                        <button
+                            className="panel__results-nav-btn"
+                            onClick={handlePrev}
+                            aria-label="이전 결과"
+                        >
+                            <ChevronUp size={14} />
+                        </button>
+                        <button
+                            className="panel__results-nav-btn"
+                            onClick={handleNext}
+                            aria-label="다음 결과"
+                        >
+                            <ChevronDown size={14} />
+                        </button>
+                    </div>
+                )}
+            </div>
+            {!Object.values(filters).some(Boolean) && (
+                <p className="panel__visual-help">검색 범위를 하나 이상 선택해 주세요.</p>
+            )}
             {matches.length > 0 && (
                 <div className="panel__results">
-                    <div className="panel__results-header">
-                        <span>
-                            {currentIndex + 1} / {matches.length}
-                        </span>
-                        <div className="panel__results-nav">
-                            <button
-                                className="panel__results-nav-btn"
-                                onClick={handlePrev}
-                                aria-label="이전 결과"
-                            >
-                                <ChevronUp size={14} />
-                            </button>
-                            <button
-                                className="panel__results-nav-btn"
-                                onClick={handleNext}
-                                aria-label="다음 결과"
-                            >
-                                <ChevronDown size={14} />
-                            </button>
-                        </div>
-                    </div>
-                    <ul className="panel__results-list">
+                    <ul className="panel__results-list" ref={resultList}>
                         {matches.map((match, index) => {
                             const Icon = KIND_ICON[match.kind];
                             return (
-                                <li
-                                    key={match.id}
-                                    className={`panel__result-item ${index === currentIndex ? 'panel__result-item--active' : ''}`}
-                                    role="button"
-                                    tabIndex={0}
-                                    aria-current={index === currentIndex ? 'true' : undefined}
-                                    onClick={() => handleResultClick(index)}
-                                    onKeyDown={(e) => {
-                                        if (e.key !== 'Enter' && e.key !== ' ') return;
-                                        e.preventDefault();
-                                        handleResultClick(index);
-                                    }}
-                                    title={buildMatchTooltip(match)}
-                                >
-                                    <span className="panel__result-seq">
-                                        {match.seq || '-'}
-                                    </span>
-                                    <Icon
-                                        className="panel__result-icon"
-                                        aria-label={FILTER_LABELS[match.kind]}
-                                    />
-                                    <span className="panel__result-text">
-                                        {renderSnippet(match)}
-                                    </span>
+                                <li key={match.id}>
+                                    <button
+                                        type="button"
+                                        className={`panel__visual-result panel__logic-result ${index === currentIndex ? 'panel__visual-result--active' : ''}`}
+                                        aria-current={index === currentIndex ? 'true' : undefined}
+                                        onClick={() => handleResultClick(index)}
+                                        title={buildMatchTooltip(match)}
+                                    >
+                                        <span className="panel__visual-result-title">
+                                            <span className="panel__visual-kind panel__logic-kind">
+                                                <Icon width={13} height={13} aria-hidden="true" />
+                                                {FILTER_LABELS[match.kind]}
+                                            </span>
+                                            <span title="전체 로직 순번">#{match.seq || '-'}</span>
+                                        </span>
+                                        <span className="panel__visual-label">
+                                            {match.snippet ? renderSnippet(match) : '이름 없음'}
+                                        </span>
+                                        {match.matchedField !== 'displayText' && (
+                                            <span className="panel__visual-description">
+                                                {buildMatchTooltip(match)}
+                                            </span>
+                                        )}
+                                    </button>
                                 </li>
                             );
                         })}
@@ -179,15 +199,7 @@ export function SearchPanel(props: SearchPanelProps) {
                 </div>
             )}
 
-            {isSearching && <p className="panel__hint">검색 중...</p>}
-
-            {!isSearching && searched && matches.length === 0 && (
-                <p className="panel__hint panel__hint--error">검색 결과가 없습니다.</p>
-            )}
-
-            {!searched && !isSearching && (
-                <p className="panel__hint">검색어를 입력하고 Enter를 누르세요</p>
-            )}
+            <p className="panel__visual-help">Enter 다음 · Shift+Enter 이전</p>
         </div>
     );
 }

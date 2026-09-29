@@ -1,0 +1,14 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><title>Visual Grid selection fixture</title>
+<style>
+body{margin:20px;font:14px/1.5 sans-serif;background:#f1f5f9}h1{font-size:20px}
+#editor-target{width:calc(100vw - 370px);height:620px;border:1px solid #94a3b8;background:white}
+body #lamp7-genie-root{top:90px;right:20px;width:290px;background:white;padding:14px;border-radius:10px;box-shadow:0 4px 24px #0002}
+body #lamp7-genie-root:empty{display:none}
+#checks{white-space:pre-wrap}button{cursor:pointer}
+</style>
+<h1>Visual editor 선택 — 합성 데이터 검증</h1>
+<p><button id="verify">원본 유지 검사</button> <button id="zoom">배율 80% / 100%</button> <button id="change">외부 모델 변경</button> <button id="close">패널 닫기</button> <button id="reopen">패널 다시 열기</button></p>
+<iframe id="editor-target" title="테스트 Visual editor" src="./visual-edit-target.html?grid=1"></iframe>
+<pre id="checks">준비 중…</pre>
+<div id="lamp7-genie-root"><div id="notice" role="status"></div><div id="panel"></div></div>
+<script type="module" src="./visual-edit.jsx"></script></html>

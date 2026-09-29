@@ -41,7 +41,7 @@ export interface Lamp7Logic {
     getNext?: () => Lamp7Logic | unknown;
     getParent?: () => Lamp7Logic[] | unknown[];
     getChildren?: () => Lamp7Logic[] | unknown[];
-    setDisable?: () => boolean;
+    setDisable?: () => boolean | void;
     setEditable?: () => void;
     isExpanded?: () => boolean;
     expand?: () => void;
@@ -83,10 +83,6 @@ export interface LogicRendererMainWorld {
     renderLogics: (logics: unknown) => void;
 }
 
-export interface LogicUtilsMainWorld {
-    showError?: (logic: unknown) => void;
-}
-
 export interface LogicEventHandlerMainWorld {
     clickLogic?: (event: MouseEvent) => void;
     clickLogicView?: (event: MouseEvent) => void;
@@ -103,12 +99,4 @@ export interface LogicEventHandlerMainWorld {
 
 export interface DivTabHostMainWorld {
     divTab?: (selector: string) => unknown;
-}
-
-export interface SortableMainWorld {
-    dragged?: HTMLElement | null;
-    get?: (el: Element) => { options: { disabled?: boolean } } | undefined;
-    utils?: {
-        deselect?: (el: Element) => void;
-    };
 }

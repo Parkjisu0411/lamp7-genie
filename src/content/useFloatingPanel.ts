@@ -6,7 +6,7 @@ import {
     useState,
     type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { sendRuntimeMessageQuietly } from '../shared/messaging';
+import { bindTargetMessages } from '../shared/messaging';
 import type { NoticeKind, PanelNotice } from '../shared/panelNotice';
 import { getPanelOffsetY, setPanelOffsetY } from '../shared/storage';
 
@@ -15,7 +15,7 @@ export type FloatingPanelTab = 'search' | 'edit';
 interface UseFloatingPanelArgs {
     isVisible: boolean;
     focusSearchSignal: number;
-    eventSettingAvailable: boolean;
+    targetAvailable: boolean;
 }
 
 function clampPanelOffsetY(y: number): number {
@@ -30,8 +30,9 @@ const DRAG_CLICK_THRESHOLD_PX = 6;
 export function useFloatingPanel({
     isVisible,
     focusSearchSignal,
-    eventSettingAvailable,
+    targetAvailable,
 }: UseFloatingPanelArgs) {
+    const [{ sendQuietly: sendRuntimeMessageQuietly }] = useState(bindTargetMessages);
     const [isExpanded, setIsExpanded] = useState(true);
     const [activeTab, setActiveTab] = useState<FloatingPanelTab>('search');
     const [notice, setNotice] = useState<PanelNotice | null>(null);
@@ -43,7 +44,7 @@ export function useFloatingPanel({
     const [bodyHeightTransitionOn, setBodyHeightTransitionOn] = useState(false);
     const prevExpandedRef = useRef<boolean | null>(null);
 
-    const effectiveExpanded = eventSettingAvailable && isExpanded;
+    const effectiveExpanded = targetAvailable && isExpanded;
 
     useEffect(() => {
         offsetYRef.current = offsetY;
@@ -67,6 +68,12 @@ export function useFloatingPanel({
         setNotice(null);
     }, []);
 
+    useEffect(() => {
+        if (!notice || notice.kind !== 'success') return;
+        const timer = window.setTimeout(clearNotice, 3000);
+        return () => window.clearTimeout(timer);
+    }, [notice, clearNotice]);
+
     const clearGuide = useCallback(() => {
         setGuideNotice(null);
     }, []);
@@ -80,7 +87,7 @@ export function useFloatingPanel({
             sendRuntimeMessageQuietly({ action: 'EDIT_STOP' });
         }
         prevExpandedRef.current = effectiveExpanded;
-    }, [effectiveExpanded]);
+    }, [effectiveExpanded, sendRuntimeMessageQuietly]);
 
     useEffect(() => {
         if (!isVisible) return;
@@ -92,15 +99,15 @@ export function useFloatingPanel({
         };
         document.addEventListener('keydown', onKeyDown, true);
         return () => document.removeEventListener('keydown', onKeyDown, true);
-    }, [isVisible]);
+    }, [isVisible, sendRuntimeMessageQuietly]);
 
     useEffect(() => {
-        if (focusSearchSignal <= 0 || !eventSettingAvailable) return;
+        if (focusSearchSignal <= 0 || !targetAvailable) return;
         queueMicrotask(() => {
             setIsExpanded(true);
             setActiveTab('search');
         });
-    }, [focusSearchSignal, eventSettingAvailable]);
+    }, [focusSearchSignal, targetAvailable]);
 
     useEffect(() => {
         if (!isVisible || !effectiveExpanded) {
@@ -140,70 +147,67 @@ export function useFloatingPanel({
         };
     }, [isVisible, effectiveExpanded, activeTab]);
 
-    const startVerticalDrag = useCallback(
-        (e: ReactPointerEvent, mode: 'header' | 'mini') => {
-            if (e.button !== 0) return;
-            e.preventDefault();
-            e.stopPropagation();
+    const startVerticalDrag = useCallback((e: ReactPointerEvent, mode: 'header' | 'mini') => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
 
-            const el = e.currentTarget as HTMLElement;
-            const pointerId = e.pointerId;
-            const startY = e.clientY;
-            const startOffset = offsetYRef.current;
-            let maxAbsDy = 0;
-            let finished = false;
+        const el = e.currentTarget as HTMLElement;
+        const pointerId = e.pointerId;
+        const startY = e.clientY;
+        const startOffset = offsetYRef.current;
+        let maxAbsDy = 0;
+        let finished = false;
 
-            const onMove = (ev: PointerEvent) => {
-                const dy = ev.clientY - startY;
-                maxAbsDy = Math.max(maxAbsDy, Math.abs(dy));
-                setOffsetY(clampPanelOffsetY(startOffset + dy));
-            };
+        const onMove = (ev: PointerEvent) => {
+            const dy = ev.clientY - startY;
+            maxAbsDy = Math.max(maxAbsDy, Math.abs(dy));
+            setOffsetY(clampPanelOffsetY(startOffset + dy));
+        };
 
-            const cleanup = () => {
-                if (finished) return;
-                finished = true;
-                document.removeEventListener('pointermove', onMove, true);
-                document.removeEventListener('pointerup', onEnd, true);
-                document.removeEventListener('pointercancel', onEnd, true);
-                document.removeEventListener('lostpointercapture', onLostCapture, true);
-                try {
-                    el.releasePointerCapture(pointerId);
-                } catch {
-                    /* already released */
-                }
-                void setPanelOffsetY(offsetYRef.current);
-            };
-
-            const onLostCapture = () => {
-                cleanup();
-            };
-
-            const onEnd = () => {
-                cleanup();
-                if (mode === 'mini' && maxAbsDy <= DRAG_CLICK_THRESHOLD_PX) {
-                    setIsExpanded(true);
-                }
-            };
-
+        const cleanup = () => {
+            if (finished) return;
+            finished = true;
+            document.removeEventListener('pointermove', onMove, true);
+            document.removeEventListener('pointerup', onEnd, true);
+            document.removeEventListener('pointercancel', onEnd, true);
+            document.removeEventListener('lostpointercapture', onLostCapture, true);
             try {
-                el.setPointerCapture(pointerId);
+                el.releasePointerCapture(pointerId);
             } catch {
-                /* unsupported environment */
+                /* already released */
             }
+            void setPanelOffsetY(offsetYRef.current);
+        };
 
-            document.addEventListener('pointermove', onMove, true);
-            document.addEventListener('pointerup', onEnd, true);
-            document.addEventListener('pointercancel', onEnd, true);
-            document.addEventListener('lostpointercapture', onLostCapture, true);
-        },
-        [],
-    );
+        const onLostCapture = () => {
+            cleanup();
+        };
+
+        const onEnd = () => {
+            cleanup();
+            if (mode === 'mini' && maxAbsDy <= DRAG_CLICK_THRESHOLD_PX) {
+                setIsExpanded(true);
+            }
+        };
+
+        try {
+            el.setPointerCapture(pointerId);
+        } catch {
+            /* unsupported environment */
+        }
+
+        document.addEventListener('pointermove', onMove, true);
+        document.addEventListener('pointerup', onEnd, true);
+        document.addEventListener('pointercancel', onEnd, true);
+        document.addEventListener('lostpointercapture', onLostCapture, true);
+    }, []);
 
     return {
         activeTab,
         setActiveTab,
         effectiveExpanded,
-        showMiniOpenButton: eventSettingAvailable && !effectiveExpanded,
+        showMiniOpenButton: targetAvailable && !effectiveExpanded,
         notice,
         guide,
         notify,

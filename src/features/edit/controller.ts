@@ -1,175 +1,439 @@
-import {
-    DATA_ATTR_LOGIC_AREA_PIN,
-    EDIT_WRAP_ACTIVE_CLASS,
-} from '../../shared/constants';
+import { DATA_ATTR_LOGIC_AREA_PIN } from '../../shared/constants';
 import { sendRuntimeMessageQuietly } from '../../shared/messaging';
-import type {
-    EditSelectionChangedPayload,
-    ExtensionMessage,
-} from '../../shared/types/messages';
-import { collectSameOriginDocuments, findEditDom, resyncEditSeqItems, seqItemKey } from './dom';
+import { selectionOverlayStyles } from '../../shared/selectionOverlay';
+import { intersectRect, type Rect } from '../visualSearch/geometry';
+import { collectSameOriginDocuments, findEditDom, resyncEditSeqItems } from './dom';
+import { pickLogicPasteLocation, type LogicPastePreview } from './pasteGeometry';
+import type { LogicPasteContext, LogicPastePick } from './pasteTypes';
 import { createPointerSelectionSession } from './pointerSelectionSession';
-import { createEditSelectionModel } from './selectionModel';
-import { injectEditStyles } from './styles';
 
-const POINTER_DRAG_THRESHOLD_PX = 6;
-const CLICK_SUPPRESS_MS = 120;
-
-let disposeSession: (() => void) | null = null;
-
-function notifyInactive(): void {
-    sendRuntimeMessageQuietly({ action: 'EDIT_NOTIFY_INACTIVE' });
-}
-
-function logicIdFromSeqLi(li: HTMLLIElement): { logicId: string | null; error?: string } {
-    const id = li.id?.trim();
-    const suffix = '_seq';
-    if (!id || !id.endsWith(suffix)) {
-        console.error('[lamp7-genie] seq li id does not match {logicId}_seq', { id });
-        return {
-            logicId: null,
-            error: '선택한 로직의 연결 정보를 읽을 수 없습니다. 화면을 새로고침한 뒤 다시 시도하세요.',
-        };
-    }
-
-    const logicId = id.slice(0, -suffix.length).trim();
-    if (!logicId) {
-        console.error('[lamp7-genie] seq li id has empty logicId', { id });
-        return {
-            logicId: null,
-            error: '선택한 로직의 연결 정보가 비어 있습니다. 다시 선택해 주세요.',
-        };
-    }
-
-    return { logicId };
-}
-
+let session:
+    | {
+          modeId?: string;
+          dispose(): void;
+          remove(id?: string): void;
+          beginPaste?(pick: LogicPastePick): LogicPasteContext | undefined;
+      }
+    | undefined;
 export function clearLogicAreaPin(): void {
-    for (const doc of collectSameOriginDocuments(document)) {
-        try {
-            doc.querySelectorAll(`[${DATA_ATTR_LOGIC_AREA_PIN}]`).forEach((node) => {
-                node.removeAttribute(DATA_ATTR_LOGIC_AREA_PIN);
-            });
-        } catch {
-            /* noop */
-        }
-    }
+    for (const doc of collectSameOriginDocuments(document))
+        doc.querySelectorAll(`[${DATA_ATTR_LOGIC_AREA_PIN}]`).forEach((el) =>
+            el.removeAttribute(DATA_ATTR_LOGIC_AREA_PIN),
+        );
 }
-
 export function isEditActive(): boolean {
-    return disposeSession !== null;
+    return !!session;
+}
+export function clearEditSelection(): void {
+    session?.remove();
+}
+export function deselectEditItem(id: string): void {
+    session?.remove(id);
+}
+export function unmountEdit(opts: { notifyInactive?: boolean; modeId?: string } = {}): void {
+    if (opts.modeId && session?.modeId !== opts.modeId) return;
+    const modeId = session?.modeId;
+    session?.dispose();
+    clearLogicAreaPin();
+    if (opts.notifyInactive) sendRuntimeMessageQuietly({ action: 'EDIT_NOTIFY_INACTIVE', modeId });
 }
 
-export function mountEdit(): boolean {
-    if (disposeSession) return true;
-
+export function beginLogicPaste(pick: LogicPastePick): LogicPasteContext | undefined {
+    return session?.beginPaste?.(pick);
+}
+export function mountEdit(paste?: LogicPasteContext): boolean {
+    if (session && !paste) return true;
+    session?.dispose();
     const dom = findEditDom();
     if (!dom) return false;
-
-    const rootDoc = dom.logicArea.ownerDocument;
-    const rootWin = rootDoc.defaultView;
-
-    injectEditStyles(rootDoc);
-    dom.wrap.classList.add(EDIT_WRAP_ACTIVE_CLASS);
-
-    const selection = createEditSelectionModel(dom);
-    let clickSuppressUntil = 0;
-
-    const notifySelectionChanged = (): void => {
-        resyncEditSeqItems(dom);
-        const logicIds: string[] = [];
-        const seen = new Set<string>();
-        let error: string | undefined;
-
-        dom.seqItems.forEach((li, i) => {
-            const key = seqItemKey(li, i);
-            if (!selection.selectedKeys.has(key)) return;
-
-            const result = logicIdFromSeqLi(li);
-            const logicId = result.logicId;
-            if (!logicId && !error) error = result.error;
-            if (!logicId || seen.has(logicId)) return;
-
-            seen.add(logicId);
-            logicIds.push(logicId);
-        });
-
-        const msg: ExtensionMessage = {
-            action: 'EDIT_SELECTION_CHANGED',
-            payload: { logicIds, error } satisfies EditSelectionChangedPayload,
-        };
-        sendRuntimeMessageQuietly(msg);
-    };
-
-    const pointerSession = createPointerSelectionSession({
-        dom,
-        selection,
-        dragThresholdPx: POINTER_DRAG_THRESHOLD_PX,
-        onPaint: () => selection.applySelectionClass(),
-        onCommit: notifySelectionChanged,
-        onSuppressClick: () => {
-            clickSuppressUntil = performance.now() + CLICK_SUPPRESS_MS;
-        },
+    const doc = dom.logicArea.ownerDocument,
+        win = doc.defaultView;
+    if (!win) return false;
+    let selected = new Set<string>(),
+        range: Rect | null = null,
+        hover: string | undefined,
+        raf = 0,
+        disposed = false;
+    const host = doc.createElement('div');
+    host.id = 'lamp7-genie-logic-edit';
+    host.tabIndex = -1;
+    host.style.cssText = 'position:fixed;inset:0;z-index:2147483001;touch-action:none;outline:none';
+    let pastePreview: LogicPastePreview | null = null;
+    let pressed: { x: number; y: number; id: number } | undefined;
+    let picked: LogicPastePick | undefined;
+    if (paste) {
+        host.dataset.pasteMode = paste.modeId;
+        host.dataset.pastePhase = 'picking';
+        dom.logicArea.setAttribute('data-genie-paste-mode', paste.modeId);
+    }
+    const shadow = host.attachShadow({ mode: 'closed' });
+    const style = doc.createElement('style');
+    style.textContent =
+        selectionOverlayStyles +
+        (paste
+            ? '.surface{cursor:default}.paste-line .tag{top:auto;bottom:2px;max-width:none}.paste-inside .tag{max-width:none}'
+            : '');
+    const shades = Array.from({ length: 4 }, () => {
+        const el = doc.createElement('div');
+        el.className = 'shade';
+        return el;
     });
-
-    const onClickCapture = (e: MouseEvent): void => {
-        if (performance.now() < clickSuppressUntil) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-        }
+    const surface = doc.createElement('div');
+    surface.className = 'surface';
+    const boxes = doc.createElement('div');
+    boxes.setAttribute('aria-hidden', 'true');
+    shadow.append(style, ...shades, surface, boxes);
+    doc.body.append(host);
+    const previousFocus = doc.activeElement as HTMLElement | null;
+    host.focus({ preventScroll: true });
+    const listeners: Array<() => void> = [];
+    const listen = (target: EventTarget, type: string, fn: EventListener) => {
+        target.addEventListener(type, fn, { capture: true });
+        listeners.push(() => target.removeEventListener(type, fn, true));
     };
-
-    const onKeyDown = (e: KeyboardEvent): void => {
-        if (e.key !== 'Escape') return;
+    const block = (e: Event) => {
         e.preventDefault();
-        e.stopPropagation();
-        sendRuntimeMessageQuietly({ action: 'GENIE_DISMISS' });
+        e.stopImmediatePropagation();
     };
-
-    dom.seqUl.addEventListener('pointerdown', pointerSession.onPointerDown);
-    const onMove = pointerSession.onPointerMove;
-    if (rootWin) {
-        rootWin.addEventListener('pointermove', onMove, { capture: true, passive: true });
-        rootWin.addEventListener('pointerup', pointerSession.onPointerUp, { capture: true, passive: true });
-        rootWin.addEventListener('pointercancel', pointerSession.onPointerCancel, { capture: true, passive: true });
-    } else {
-        rootDoc.addEventListener('pointermove', onMove, true);
-        rootDoc.addEventListener('pointerup', pointerSession.onPointerUp, true);
-        rootDoc.addEventListener('pointercancel', pointerSession.onPointerCancel, true);
-    }
-    dom.seqUl.addEventListener('click', onClickCapture, true);
-    rootDoc.addEventListener('keydown', onKeyDown, true);
-
-    disposeSession = (): void => {
-        disposeSession = null;
-        dom.seqUl.removeEventListener('pointerdown', pointerSession.onPointerDown);
-        if (rootWin) {
-            rootWin.removeEventListener('pointermove', onMove, { capture: true } as AddEventListenerOptions);
-            rootWin.removeEventListener('pointerup', pointerSession.onPointerUp, { capture: true } as AddEventListenerOptions);
-            rootWin.removeEventListener('pointercancel', pointerSession.onPointerCancel, { capture: true } as AddEventListenerOptions);
-        } else {
-            rootDoc.removeEventListener('pointermove', onMove, true);
-            rootDoc.removeEventListener('pointerup', pointerSession.onPointerUp, true);
-            rootDoc.removeEventListener('pointercancel', pointerSession.onPointerCancel, true);
+    const place = (el: HTMLElement, r: Rect) => {
+        el.style.left = `${r.left}px`;
+        el.style.top = `${r.top}px`;
+        el.style.width = `${Math.max(0, r.width)}px`;
+        el.style.height = `${Math.max(0, r.height)}px`;
+    };
+    const clipFor = (el: HTMLElement): Rect | null => {
+        const bounds = el.getBoundingClientRect();
+        const rect =
+            paste && !paste.rows.length && el === dom.wrap
+                ? {
+                      left: bounds.left,
+                      top: bounds.top,
+                      width: bounds.width,
+                      height: Math.max(48, bounds.height),
+                  }
+                : bounds;
+        let clip: Rect | null = intersectRect(rect, {
+            left: 0,
+            top: 0,
+            width: win.innerWidth,
+            height: win.innerHeight,
+        });
+        for (let p = el.parentElement; p && clip; p = p.parentElement) {
+            const css = win.getComputedStyle(p);
+            if (css.display === 'none' || css.visibility === 'hidden') return null;
+            if (/auto|scroll|hidden|clip/.test(css.overflow + css.overflowX + css.overflowY))
+                clip = intersectRect(clip, p.getBoundingClientRect());
         }
-        dom.seqUl.removeEventListener('click', onClickCapture, true);
-        rootDoc.removeEventListener('keydown', onKeyDown, true);
-
-        selection.clear();
-        dom.wrap.classList.remove(EDIT_WRAP_ACTIVE_CLASS);
-        selection.clearSelectionClasses();
-        clearLogicAreaPin();
+        return clip;
     };
-
-    notifySelectionChanged();
-    return true;
-}
-
-export function unmountEdit(opts: { notifyInactive?: boolean } = {}): void {
-    if (disposeSession) {
-        disposeSession();
-    } else {
-        clearLogicAreaPin();
+    const rows = () => {
+        resyncEditSeqItems(dom);
+        const clip = clipFor(dom.wrap);
+        if (!clip) return [];
+        const bodies = new Map(
+            Array.from(dom.logicArea.querySelectorAll<HTMLElement>('.logic-row[id]')).map((el) => [
+                el.id,
+                el,
+            ]),
+        );
+        return dom.seqItems.flatMap((li) => {
+            const id = li.id.endsWith('_seq') ? li.id.slice(0, -4) : '';
+            if (!id) return [];
+            const seq = li.getBoundingClientRect(),
+                body = bodies.get(id);
+            if (!seq.width || !seq.height) return [];
+            // Native seq heights represent the logic itself (a condition excludes its child logics).
+            // Use that vertical span instead of the enclosing parent's full subtree box.
+            const own = body?.getBoundingClientRect();
+            const rect = intersectRect(
+                {
+                    left: seq.left,
+                    top: seq.top,
+                    width: Math.max(seq.right, own?.right ?? seq.right) - seq.left,
+                    height: seq.height,
+                },
+                clip,
+            );
+            return rect
+                ? [
+                      {
+                          key: id,
+                          rect,
+                          label: li.textContent?.trim() || '',
+                      },
+                  ]
+                : [];
+        });
+    };
+    const emit = () =>
+        sendRuntimeMessageQuietly({
+            action: 'EDIT_SELECTION_CHANGED',
+            payload: {
+                logicIds: dom.seqItems
+                    .map((li) => li.id.slice(0, -4))
+                    .filter((id) => selected.has(id)),
+            },
+        });
+    const pasteAt = (x: number, y: number) => {
+        const clip = clipFor(dom.wrap);
+        if (!paste || !clip) return null;
+        const bodies = new Map(
+            Array.from(dom.logicArea.querySelectorAll<HTMLElement>('.logic-row[id]')).map((el) => [
+                el.id,
+                el,
+            ]),
+        );
+        return pickLogicPasteLocation(
+            paste.rows.flatMap((row) => {
+                const body = bodies.get(row.id),
+                    head = body?.querySelector<HTMLElement>('.head-logic');
+                if (!body || !head || !head.getBoundingClientRect().height) return [];
+                return [
+                    {
+                        ...row,
+                        body: body.getBoundingClientRect(),
+                        head: head.getBoundingClientRect(),
+                    },
+                ];
+            }),
+            clip,
+            x,
+            y,
+        );
+    };
+    const paint = () => {
+        raf = 0;
+        if (disposed) return;
+        const clip = clipFor(dom.wrap);
+        if (!clip || !dom.logicArea.isConnected || !dom.seqUl.isConnected) {
+            unmountEdit({ notifyInactive: true });
+            return;
+        }
+        const { left, top, width, height } = clip;
+        place(shades[0], { left: 0, top: 0, width: win.innerWidth, height: top });
+        place(shades[1], { left: 0, top, width: left, height });
+        place(shades[2], { left: left + width, top, width: win.innerWidth - left - width, height });
+        place(shades[3], {
+            left: 0,
+            top: top + height,
+            width: win.innerWidth,
+            height: win.innerHeight - top - height,
+        });
+        boxes.replaceChildren();
+        const draw = (rect: Rect, kind: string, label?: string) => {
+            const el = doc.createElement('div');
+            el.className = `box ${kind}`;
+            place(el, rect);
+            if (label) {
+                const tag = doc.createElement('span');
+                tag.className = 'tag';
+                tag.textContent = label;
+                el.append(tag);
+            }
+            boxes.append(el);
+        };
+        for (const row of rows()) {
+            if (selected.has(row.key)) draw(row.rect, 'selected', row.label);
+            else if (row.key === hover) draw(row.rect, 'hover');
+        }
+        if (range) draw(range, 'range');
+        if (pastePreview)
+            draw(
+                pastePreview.rect,
+                pastePreview.location.position === 'inside' ? 'paste-inside' : 'paste-line',
+                pastePreview.label,
+            );
+    };
+    const schedule = () => {
+        if (!raf && !disposed) raf = win.requestAnimationFrame(paint);
+    };
+    const pointer = createPointerSelectionSession({
+        getRows: rows,
+        getSelected: () => selected,
+        setSelected: (keys) => {
+            selected = keys;
+        },
+        onPaint: (rect) => {
+            range = rect;
+            schedule();
+        },
+        onCommit: emit,
+    });
+    listen(surface, 'pointerdown', (event) => {
+        const e = event as PointerEvent;
+        block(e);
+        if (e.button !== 0) return;
+        host.focus({ preventScroll: true });
+        surface.setPointerCapture(e.pointerId);
+        if (paste) {
+            if (host.dataset.pastePhase !== 'picking') return;
+            pressed = { x: e.clientX, y: e.clientY, id: e.pointerId };
+            pastePreview = pasteAt(e.clientX, e.clientY);
+            schedule();
+        } else pointer.onPointerDown(e);
+    });
+    listen(surface, 'pointermove', (event) => {
+        const e = event as PointerEvent;
+        block(e);
+        if (paste) {
+            if (host.dataset.pastePhase === 'picking') {
+                pastePreview = pasteAt(e.clientX, e.clientY);
+                schedule();
+            }
+            return;
+        }
+        hover = rows().find(
+            ({ rect: r }) =>
+                e.clientX >= r.left &&
+                e.clientX <= r.left + r.width &&
+                e.clientY >= r.top &&
+                e.clientY <= r.top + r.height,
+        )?.key;
+        pointer.onPointerMove(e);
+        schedule();
+    });
+    listen(surface, 'pointerup', (event) => {
+        const e = event as PointerEvent;
+        block(e);
+        if (paste) {
+            if (
+                pressed?.id === e.pointerId &&
+                Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) < 6 &&
+                host.dataset.pastePhase === 'picking'
+            ) {
+                pastePreview = pasteAt(e.clientX, e.clientY);
+                if (pastePreview) {
+                    host.dataset.pastePhase = 'picked';
+                    picked = { modeId: paste.modeId, location: pastePreview.location };
+                    sendRuntimeMessageQuietly({ action: 'EDIT_PASTE_PICKED', payload: picked });
+                }
+            }
+            pressed = undefined;
+        } else pointer.onPointerUp(e);
+        if (surface.hasPointerCapture(e.pointerId)) surface.releasePointerCapture(e.pointerId);
+    });
+    listen(surface, 'pointercancel', (event) => {
+        pressed = undefined;
+        pointer.onPointerCancel(event as PointerEvent);
+    });
+    listen(surface, 'lostpointercapture', () => {
+        pressed = undefined;
+        pointer.cancel();
+    });
+    for (const type of [
+        'click',
+        'dblclick',
+        'mousedown',
+        'mouseup',
+        'contextmenu',
+        'dragstart',
+        'drop',
+    ])
+        listen(host, type, block);
+    listen(surface, 'wheel', (event) => {
+        const e = event as WheelEvent;
+        block(e);
+        host.style.pointerEvents = 'none';
+        let node = doc.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+        host.style.pointerEvents = '';
+        if (!node || !dom.wrap.contains(node)) node = dom.logicArea;
+        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? win.innerHeight : 1;
+        while (node) {
+            const css = win.getComputedStyle(node);
+            if (/auto|scroll/.test(css.overflow + css.overflowX + css.overflowY)) {
+                const x = node.scrollLeft,
+                    y = node.scrollTop;
+                node.scrollLeft += (e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX) * unit;
+                node.scrollTop += (e.shiftKey && !e.deltaX ? 0 : e.deltaY) * unit;
+                if (x !== node.scrollLeft || y !== node.scrollTop) break;
+            }
+            node = node.parentElement;
+        }
+        schedule();
+    });
+    const keyboard = (event: Event) => {
+        const e = event as KeyboardEvent;
+        if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+        if (e.composedPath().some((n) => n instanceof Element && n.id === 'lamp7-genie-root'))
+            return;
+        block(e);
+        if (e.type === 'keydown' && e.key === 'Escape') unmountEdit({ notifyInactive: true });
+        if (e.type === 'keydown' && e.key === 'Tab') {
+            try {
+                win.top?.document
+                    .querySelector<HTMLButtonElement>('#lamp7-genie-root .genie-edit-bar button')
+                    ?.focus();
+            } catch {
+                /* different origin */
+            }
+        }
+    };
+    for (const type of ['keydown', 'keyup', 'keypress']) listen(win, type, keyboard);
+    listen(win, 'blur', () => {
+        pointer.cancel();
+        schedule();
+    });
+    listen(doc, 'scroll', () => {
+        if (paste && host.dataset.pastePhase === 'picking') pastePreview = null;
+        schedule();
+    });
+    listen(win, 'resize', schedule);
+    listen(win, 'pagehide', () => unmountEdit());
+    const observer = new MutationObserver(() => {
+        // A native re-render can invalidate captured rows; stop instead of operating on stale IDs.
+        unmountEdit({ notifyInactive: true });
+    });
+    observer.observe(dom.logicArea, { childList: true, subtree: true });
+    observer.observe(dom.seqUl, { childList: true, subtree: true });
+    const resize = new ResizeObserver(schedule);
+    resize.observe(dom.wrap);
+    resize.observe(dom.logicArea);
+    session = {
+        modeId: paste?.modeId,
+        beginPaste(pick) {
+            if (
+                !paste ||
+                !picked ||
+                host.dataset.pastePhase !== 'picked' ||
+                pick.modeId !== paste.modeId ||
+                pick.location.anchorId !== picked.location.anchorId ||
+                pick.location.position !== picked.location.position ||
+                observer.takeRecords().length ||
+                !clipFor(dom.wrap)
+            )
+                return undefined;
+            host.dataset.pastePhase = 'committing';
+            observer.disconnect();
+            return paste;
+        },
+        remove(id) {
+            pointer.cancel();
+            if (id) selected.delete(id);
+            else selected.clear();
+            emit();
+            schedule();
+        },
+        dispose() {
+            disposed = true;
+            session = undefined;
+            pointer.cancel();
+            listeners.forEach((fn) => fn());
+            observer.disconnect();
+            resize.disconnect();
+            win.cancelAnimationFrame(raf);
+            host.remove();
+            if (dom.logicArea.getAttribute('data-genie-paste-mode') === paste?.modeId)
+                dom.logicArea.removeAttribute('data-genie-paste-mode');
+            if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+        },
+    };
+    // A scroll position can hide an intact editor. Reveal it before rejecting
+    // the mode; collapsed split panes remain under the user's control.
+    if (!clipFor(dom.wrap)) {
+        dom.wrap.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
     }
-    if (opts.notifyInactive) notifyInactive();
+    paint();
+    if (disposed) return false;
+    if (!paste) emit();
+    return true;
 }

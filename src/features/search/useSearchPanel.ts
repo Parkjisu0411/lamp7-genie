@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { sendRuntimeMessage, sendRuntimeMessageQuietly } from '../../shared/messaging';
+import { bindTargetMessages } from '../../shared/messaging';
 import type { NotifyPanel } from '../../shared/panelNotice';
 import { getSearchFilters, setSearchFilters } from '../../shared/storage';
 import type { SearchMatch } from '../../shared/types/messages';
@@ -19,6 +19,7 @@ export function useSearchPanel({
     clearNotice,
     clearGuide,
 }: UseSearchPanelArgs) {
+    const [{ send: sendRuntimeMessage, sendQuietly: sendRuntimeMessageQuietly }] = useState(bindTargetMessages);
     const inputRef = useRef<HTMLInputElement>(null);
     const [query, setQuery] = useState('');
     const [lastSearchedQuery, setLastSearchedQuery] = useState('');
@@ -69,7 +70,7 @@ export function useSearchPanel({
             sendRuntimeMessageQuietly({ action: 'SEARCH_CLEAR' });
             clearGuide();
         };
-    }, [clearGuide]);
+    }, [clearGuide, sendRuntimeMessageQuietly]);
 
     const resetSearchState = () => {
         setLastSearchedQuery('');

@@ -1,19 +1,11 @@
 import { DATA_ATTR_LOGIC_AREA_PIN } from '../../shared/constants';
 
-/** seq `li`별 안정 키. id 없으면 인덱스(추후 LogicEditor 연동 시 seq 순서 참고용). */
-export function seqItemKey(li: HTMLLIElement, index: number): string {
-    const id = li.id?.trim();
-    /** 동일 id가 여러 행에 있으면 선택 Set이 한 키로만 토글되는 문제 방지 */
-    if (id) return `${id}#__i${index}`;
-    return `__genie_seq:${index}`;
-}
-
 export interface EditDomBundle {
     wrap: HTMLElement;
     seqArea: HTMLElement;
     seqUl: HTMLUListElement;
     seqItems: HTMLLIElement[];
-    /** $.divTab 핀 위치 — seq 열(형제/조상) 탐색용. 본문 logic 행과는 아직 짝지 않음 */
+    /** $.divTab 핀 위치. 순번과 본문은 {logicId}_seq / {logicId}로 연결한다. */
     logicArea: HTMLElement;
 }
 
@@ -65,7 +57,6 @@ function buildEditDomBundle(
     if (!seqUl) return null;
 
     const seqItems = listSeqItems(seqUl);
-    if (seqItems.length === 0) return null;
 
     return { wrap, seqArea, seqUl, seqItems, logicArea };
 }
@@ -73,7 +64,7 @@ function buildEditDomBundle(
 /** 호스트가 리렌더하면 기존 li 참조가 끊기므로, 이벤트 핸들러에서 ul 기준으로 다시 채운다. */
 export function resyncEditSeqItems(bundle: EditDomBundle): void {
     const next = listSeqItems(bundle.seqUl);
-    if (next.length) bundle.seqItems = next;
+    bundle.seqItems = next;
 }
 
 /** 현재 문서 + 접근 가능한 같은 출처 iframe(중첩). 핀 제거·탐색에 공통 사용 */
@@ -100,7 +91,7 @@ export function collectSameOriginDocuments(root: Document): Document[] {
 
 /**
  * 표식이 꽂인 `.logic_area` 근처에서 seq 열(`ul > li`)만 찾는다.
- * 본문 logic DOM과의 정합 검증은 하지 않음(추후 LogicEditor).
+ * 본문 행의 연결과 실제 선택 사각형은 controller에서 계산한다.
  */
 export function findEditDom(): EditDomBundle | null {
     for (const doc of collectSameOriginDocuments(document)) {
@@ -110,8 +101,7 @@ export function findEditDom(): EditDomBundle | null {
         const seqArea = findSeqAreaForLogicArea(pinned);
         if (!seqArea) continue;
 
-        const wrap =
-            pinned.closest<HTMLElement>('.logic_wrap') ?? pinned.parentElement ?? pinned;
+        const wrap = pinned.closest<HTMLElement>('.logic_wrap') ?? pinned.parentElement ?? pinned;
         const bundle = buildEditDomBundle(wrap, seqArea, pinned);
         if (bundle) return bundle;
     }

@@ -1,14 +1,16 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { isExtensionContextValid } from '../shared/extensionContext';
-import { sendRuntimeMessageSafely } from '../shared/messaging';
+import { sendRuntimeMessageSafely, setMessageTarget } from '../shared/messaging';
+import type { TargetContext } from '../shared/targets/types';
 import type { ExtensionMessage } from '../shared/types/messages';
 import { FloatingPanel } from './FloatingPanel';
 
 export function bootstrapTopFramePanel(): void {
     let isVisible = false;
     let focusSearchSignal = 0;
-    let eventSettingAvailable = false;
+    let target: TargetContext | null = null;
+    let receivedTargetUpdate = false;
 
     const container = document.createElement('div');
     container.id = 'lamp7-genie-root';
@@ -20,9 +22,10 @@ export function bootstrapTopFramePanel(): void {
         root.render(
             <StrictMode>
                 <FloatingPanel
+                    key={target?.sessionId ?? 'unavailable'}
                     isVisible={isVisible}
                     focusSearchSignal={focusSearchSignal}
-                    eventSettingAvailable={eventSettingAvailable}
+                    target={target}
                 />
             </StrictMode>,
         );
@@ -31,8 +34,10 @@ export function bootstrapTopFramePanel(): void {
     render();
 
     sendRuntimeMessageSafely({ action: 'REQUEST_TARGET_AVAILABILITY' }, (res) => {
-        if (typeof res?.data?.available === 'boolean') {
-            eventSettingAvailable = res.data.available;
+        if (!receivedTargetUpdate && typeof res?.data?.available === 'boolean') {
+            target = res.data.target;
+            setMessageTarget(target?.sessionId);
+            if (!target) isVisible = false;
             render();
         }
     });
@@ -41,7 +46,10 @@ export function bootstrapTopFramePanel(): void {
     chrome.runtime.onMessage.addListener((message: ExtensionMessage) => {
         if (!isExtensionContextValid()) return;
         if (message.action === 'TARGET_AVAILABILITY') {
-            eventSettingAvailable = message.payload.available;
+            receivedTargetUpdate = true;
+            target = message.payload.target;
+            setMessageTarget(target?.sessionId);
+            if (!target) isVisible = false;
             render();
             return;
         }
@@ -51,6 +59,7 @@ export function bootstrapTopFramePanel(): void {
             return;
         }
         if (message.action === 'TOGGLE_PANEL') {
+            if (!target || message.targetSessionId !== target.sessionId) return;
             isVisible = !isVisible;
             if (!isVisible) {
                 sendRuntimeMessageSafely({ action: 'EDIT_STOP' });
@@ -59,6 +68,7 @@ export function bootstrapTopFramePanel(): void {
             return;
         }
         if (message.action === 'FOCUS_SEARCH') {
+            if (!target || message.targetSessionId !== target.sessionId) return;
             isVisible = true;
             focusSearchSignal += 1;
             render();

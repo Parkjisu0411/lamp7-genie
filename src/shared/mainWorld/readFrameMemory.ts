@@ -11,10 +11,11 @@ export async function readFrameMemory<TArgs extends unknown[], TResult>(
     frameId: number,
     fn: (...args: TArgs) => TResult,
     args: TArgs,
+    documentId?: string,
 ): Promise<TResult | null> {
     try {
         const [injectionResult] = await chrome.scripting.executeScript({
-            target: { tabId, frameIds: [frameId] },
+            target: documentId ? { tabId, documentIds: [documentId] } : { tabId, frameIds: [frameId] },
             world: 'MAIN',
             func: fn as (...args: unknown[]) => unknown,
             args: args as unknown[],

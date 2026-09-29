@@ -1,10 +1,11 @@
-import { resolveTargetFrame } from '../features/search/background/resolveTargetFrame';
 import type { ExtensionMessage, ExtensionResponse } from '../shared/types/messages';
 import { handleEditMessage } from './handlers/editMessages';
 import { handlePanelMessage } from './handlers/panelMessages';
 import { handleSearchMessage } from './handlers/searchMessages';
-import { safeSendToTopFrame } from './messaging';
-import { syncTabTargetState } from './targetState';
+import { safeSendToTopFrame, sendToFrame } from './messaging';
+import { getCurrentTarget, removeTabTarget, refreshTabTarget, syncTabTargetState } from './targetState';
+import { handleVisualSearchMessage } from './handlers/visualSearchMessages';
+import { cancelVisualEdit, handleVisualEditMessage } from './handlers/visualEditMessages';
 
 const debouncedSyncByTab = new Map<number, ReturnType<typeof setTimeout>>();
 
@@ -29,12 +30,10 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
 });
 
 chrome.webNavigation.onHistoryStateUpdated.addListener((details) => {
-    if (details.frameId !== 0) return;
     scheduleSyncTabTargetState(details.tabId);
 });
 
 chrome.webNavigation.onCommitted.addListener((details) => {
-    if (details.frameId !== 0) return;
     scheduleSyncTabTargetState(details.tabId);
 });
 
@@ -42,15 +41,21 @@ chrome.webNavigation.onCompleted.addListener((details) => {
     scheduleSyncTabTargetState(details.tabId);
 });
 
+chrome.tabs.onRemoved.addListener(tabId => {
+    clearTimeout(debouncedSyncByTab.get(tabId));
+    debouncedSyncByTab.delete(tabId);
+    removeTabTarget(tabId);
+});
+
 chrome.action.onClicked.addListener((tab) => {
     if (!tab.id) return;
     void (async () => {
-        const target = await resolveTargetFrame(tab.id!);
+        const target = await refreshTabTarget(tab.id!);
         if (!target) {
             await syncTabTargetState(tab.id!);
             return;
         }
-        await safeSendToTopFrame(tab.id!, { action: 'TOGGLE_PANEL' });
+        await safeSendToTopFrame(tab.id!, { action: 'TOGGLE_PANEL', targetSessionId: target.sessionId });
     })();
 });
 
@@ -62,12 +67,12 @@ chrome.commands.onCommand.addListener(async (command) => {
             currentWindow: true,
         });
         if (!activeTab?.id) return;
-        const target = await resolveTargetFrame(activeTab.id);
+        const target = await refreshTabTarget(activeTab.id);
         if (!target) {
             await syncTabTargetState(activeTab.id);
             return;
         }
-        await safeSendToTopFrame(activeTab.id, { action: 'FOCUS_SEARCH' });
+        await safeSendToTopFrame(activeTab.id, { action: 'FOCUS_SEARCH', targetSessionId: target.sessionId });
     } catch {
         /* content script may not be ready */
     }
@@ -84,10 +89,14 @@ type EditMessage = Extract<
         action:
             | 'EDIT_START'
             | 'EDIT_STOP'
+            | 'EDIT_CLEAR'
+            | 'EDIT_DESELECT'
             | 'EDIT_NOTIFY_INACTIVE'
             | 'EDIT_SELECTION_CHANGED'
             | 'EDIT_COPY_SELECTED'
             | 'EDIT_DELETE_SELECTED'
+            | 'EDIT_PASTE_START'
+            | 'EDIT_PASTE_PICKED'
             | 'EDIT_PASTE_LOGICS';
     }
 >;
@@ -109,10 +118,14 @@ function isEditMessage(message: ExtensionMessage): message is EditMessage {
     return (
         message.action === 'EDIT_START' ||
         message.action === 'EDIT_STOP' ||
+        message.action === 'EDIT_CLEAR' ||
+        message.action === 'EDIT_DESELECT' ||
         message.action === 'EDIT_NOTIFY_INACTIVE' ||
         message.action === 'EDIT_SELECTION_CHANGED' ||
         message.action === 'EDIT_COPY_SELECTED' ||
         message.action === 'EDIT_DELETE_SELECTED' ||
+        message.action === 'EDIT_PASTE_START' ||
+        message.action === 'EDIT_PASTE_PICKED' ||
         message.action === 'EDIT_PASTE_LOGICS'
     );
 }
@@ -136,14 +149,80 @@ async function dispatchMessage(
         };
     }
 
+    if (message.action === 'PASTE_PROGRESS') {
+        const target = getCurrentTarget(tabId);
+        if (!target || message.targetSessionId !== target.sessionId ||
+            sender.frameId !== target.frameId || sender.documentId !== target.documentId)
+            return { success: false };
+        await safeSendToTopFrame(tabId, message);
+        return { success: true };
+    }
+
+    if (message.action === 'TARGET_CONTEXT_DIRTY') {
+        scheduleSyncTabTargetState(tabId);
+        return { success: true };
+    }
+
+    if (message.action === 'VISUAL_EDIT_START' || message.action === 'VISUAL_EDIT_STOP' ||
+        message.action === 'VISUAL_EDIT_DELETE' || message.action === 'VISUAL_EDIT_COPY' ||
+        message.action === 'VISUAL_EDIT_PASTE_START' || message.action === 'VISUAL_EDIT_PASTE' ||
+        message.action === 'VISUAL_EDIT_CLEAR' || message.action === 'VISUAL_EDIT_DESELECT' || message.action === 'VISUAL_EDIT_STATE') {
+        const target = await refreshTabTarget(tabId);
+        if (!target || target.kind !== 'visual' || message.targetSessionId !== target.sessionId)
+            return { success: false, error: 'Visual editor 대상이 변경되었습니다.' };
+        if (message.action === 'VISUAL_EDIT_STATE') {
+            if (sender.frameId !== target.frameId || sender.documentId !== target.documentId) return { success: false };
+            if (!message.payload.active) {
+                cancelVisualEdit(tabId, target.sessionId, message.payload.modeId);
+                await sendToFrame(tabId, target.frameId, { action: 'VISUAL_EDIT_STOP', targetSessionId: target.sessionId, payload: { modeId: message.payload.modeId } }, target.documentId);
+            }
+            await safeSendToTopFrame(tabId, message);
+            return { success: true };
+        }
+        if (sender.frameId !== 0) return { success: false, error: '패널에서만 실행할 수 있습니다.' };
+        return handleVisualEditMessage(tabId, message, target);
+    }
+
+    if (message.action === 'VISUAL_SEARCH_START' || message.action === 'VISUAL_SEARCH_NAVIGATE' ||
+        message.action === 'VISUAL_SEARCH_CLEAR' || message.action === 'VISUAL_SEARCH_DIRTY') {
+        const target = await refreshTabTarget(tabId);
+        if (!target || target.kind !== 'visual' || message.targetSessionId !== target.sessionId) return {
+            success: false, error: 'Visual editor 대상이 변경되었습니다.',
+        };
+        if (message.action === 'VISUAL_SEARCH_DIRTY') {
+            if (sender.frameId !== target.frameId || sender.documentId !== target.documentId) return { success: false };
+            await safeSendToTopFrame(tabId, { action: 'VISUAL_SEARCH_CHANGED', targetSessionId: target.sessionId });
+            return { success: true };
+        }
+        if (sender.frameId !== 0) return { success: false, error: '패널에서만 검색할 수 있습니다.' };
+        return handleVisualSearchMessage(tabId, message, target);
+    }
+
     if (isPanelMessage(message)) {
+        if (message.action === 'GENIE_DISMISS') {
+            const target = await refreshTabTarget(tabId);
+            if (message.targetSessionId !== target?.sessionId) return { success: false, error: '대상 화면이 변경되었습니다.' };
+        }
         return handlePanelMessage(tabId, message);
     }
-    if (isSearchMessage(message)) {
-        return handleSearchMessage(tabId, message);
-    }
-    if (isEditMessage(message)) {
-        return handleEditMessage(tabId, sender, message);
+    if (isSearchMessage(message) || isEditMessage(message)) {
+        const target = await refreshTabTarget(tabId);
+        if (!target || message.targetSessionId !== target.sessionId) {
+            return { success: false, error: '대상 화면이 변경되었습니다. 패널에서 다시 시도해 주세요.' };
+        }
+        if (target.kind !== 'logic') {
+            return { success: false, error: 'Logic 전용 명령은 Visual editor에서 실행할 수 없습니다.' };
+        }
+        if (message.action === 'EDIT_SELECTION_CHANGED' || message.action === 'EDIT_NOTIFY_INACTIVE' || message.action === 'EDIT_PASTE_PICKED') {
+            if (sender.frameId !== target.frameId || sender.documentId !== target.documentId) {
+                return { success: false, error: '현재 편집 대상의 메시지가 아닙니다.' };
+            }
+        } else if (sender.frameId !== 0) {
+            return { success: false, error: '패널에서만 실행할 수 있습니다.' };
+        }
+        return isSearchMessage(message)
+            ? handleSearchMessage(tabId, message, target)
+            : handleEditMessage(tabId, sender, message, target);
     }
 
     return {
@@ -154,7 +233,9 @@ async function dispatchMessage(
 
 chrome.runtime.onMessage.addListener(
     (message: ExtensionMessage, sender, sendResponse) => {
-        void dispatchMessage(message, sender).then(sendResponse);
+        void dispatchMessage(message, sender).then(sendResponse).catch(() => {
+            sendResponse({ success: false, error: '대상 화면을 확인할 수 없습니다.' });
+        });
         return true;
     },
 );

@@ -20,6 +20,7 @@ type PinOutcome = 'ok' | 'no_divtab' | 'no_logic_area';
 export async function pinLogicAreaMainWorld(
     tabId: number,
     frameId: number,
+    documentId?: string,
 ): Promise<PinLogicAreaResult> {
     const attr = DATA_ATTR_LOGIC_AREA_PIN;
     const outcome = await readFrameMemory(tabId, frameId, (pinAttr: string, helperSource: string): PinOutcome => {
@@ -82,7 +83,7 @@ export async function pinLogicAreaMainWorld(
 
         logicArea.setAttribute(pinAttr, '1');
         return 'ok';
-    }, [attr, LOGIC_EDITOR_HELPER_SOURCE]);
+    }, [attr, LOGIC_EDITOR_HELPER_SOURCE], documentId);
 
     if (outcome === null) {
         return { ok: false, error: '페이지에서 편집 핀을 설정하지 못했습니다.' };

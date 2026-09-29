@@ -1,5 +1,6 @@
 import { queryFrameData } from '../../features/search/background/queryFrameData';
-import { resolveTargetFrame } from '../../features/search/background/resolveTargetFrame';
+import type { TargetContext } from '../../shared/targets/types';
+import { isCurrentTarget } from '../targetState';
 import type {
     ExtensionMessage,
     ExtensionResponse,
@@ -16,18 +17,11 @@ type SearchMessage = Extract<
 export async function handleSearchMessage(
     tabId: number,
     message: SearchMessage,
+    target: TargetContext,
 ): Promise<ExtensionResponse> {
     if (message.action === 'SEARCH_START') {
-        const target = await resolveTargetFrame(tabId);
-        if (!target) {
-            console.warn('[lamp7-genie] target frame not found', { tabId });
-            return {
-                success: false,
-                error: 'eventSetting 화면이 아닙니다.',
-            };
-        }
-
-        const matches = await queryFrameData(tabId, target.frameId, message.payload);
+        const matches = await queryFrameData(tabId, target.frameId, message.payload, target.documentId);
+        if (!isCurrentTarget(tabId, target.sessionId)) return { success: false, error: '대상 화면이 변경되었습니다.' };
         if (!matches) {
             return {
                 success: false,
@@ -37,8 +31,9 @@ export async function handleSearchMessage(
 
         const highlightRes = await sendToFrame(tabId, target.frameId, {
             action: 'HIGHLIGHT_TARGETS',
+            targetSessionId: target.sessionId,
             payload: { matches } satisfies HighlightTargetsPayload,
-        });
+        }, target.documentId);
         if (!highlightRes.success) {
             return {
                 success: false,
@@ -55,15 +50,5 @@ export async function handleSearchMessage(
         };
     }
 
-    const target = await resolveTargetFrame(tabId);
-    if (!target) {
-        return message.action === 'SEARCH_CLEAR'
-            ? { success: true }
-            : {
-                  success: false,
-                  error: 'eventSetting 화면이 아닙니다.',
-              };
-    }
-
-    return sendToFrame(tabId, target.frameId, message);
+    return sendToFrame(tabId, target.frameId, message, target.documentId);
 }
