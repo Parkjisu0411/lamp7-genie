@@ -9,7 +9,7 @@ import {
     pastePositionText,
     type PasteGeometry,
 } from './pastePointer';
-import { createVisualSelection, fullyContains, selectionRect } from './selection';
+import { createVisualSelection, marqueeContainsComponent, selectionRect } from './selection';
 import type { VisualPasteLocation } from './transferTypes';
 import type {
     VisualDeleteRequest,
@@ -392,16 +392,13 @@ export function mountVisualEdit(payload: VisualEditMount, sessionId: string): st
         const ids = [...model.units.keys()].filter((id) => {
             if (model.canonical(id) !== id) return false;
             const members = model.members(id).filter((record) => !record.hidden);
-            // The complete unit must fit; a range around one internal part is insufficient.
+            // Enclose the visible width and full height of every unit member.
+            // Horizontal clipping is allowed; a small vertical slice never selects a tall parent.
             return (
                 members.length > 0 &&
                 members.every((record) => {
                     const rect = rectFor(record, geom);
-                    return (
-                        !!rect &&
-                        fullyContains(range, rect.full) &&
-                        fullyContains(rect.clipped, rect.full)
-                    );
+                    return !!rect && marqueeContainsComponent(range, rect.full, rect.clipped);
                 })
             );
         });

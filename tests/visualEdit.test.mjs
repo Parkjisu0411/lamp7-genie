@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import vm from 'node:vm';
-import { createVisualSelection, fullyContains, selectionRect } from '../src/features/visualEdit/selection.ts';
+import { createVisualSelection, fullyContains, marqueeContainsComponent, selectionRect } from '../src/features/visualEdit/selection.ts';
 import { watchVisualSelection } from '../src/features/visualEdit/background/watchSelection.ts';
 
 const record = (id, parentModelId = null, extra = {}) => ({
@@ -64,6 +64,64 @@ test('invalid ownership/ancestry cannot loop; independent equal names remain dis
     const model = createVisualSelection([record('a', 'b', { ownerModelId: 'b' }), record('b', 'a', { ownerModelId: 'a' }), record('x'), record('y')]);
     assert.equal(model.canonical('a'), undefined);
     assert.deepEqual([...model.normalize(['a', 'x', 'y'])], ['x', 'y']);
+});
+test('wide components need only their visible width at left, middle and right scroll positions', () => {
+    for (const left of [170, 10, -150]) {
+        const full = { left, top: 120, width: 1608, height: 185 };
+        const visible = {
+            left: Math.max(160, left),
+            top: 120,
+            width: Math.min(1660, left + 1608) - Math.max(160, left),
+            height: 185,
+        };
+        const range = selectionRect(visible.left - 5, 115, visible.left + visible.width + 5, 310);
+        assert.equal(marqueeContainsComponent(range, full, visible), true);
+        assert.equal(
+            marqueeContainsComponent({ ...range, left: visible.left + 5 }, full, visible),
+            false,
+            'partial coverage of visible width is not enough',
+        );
+        assert.equal(
+            marqueeContainsComponent(range, full, { ...visible, width: 0 }),
+            false,
+            'fully offscreen items are excluded',
+        );
+    }
+});
+
+test('vertical clipping and partial height still exclude a tall parent, even with a large marquee', () => {
+    const full = { left: -100, top: 50, width: 1000, height: 200 };
+    const visible = { left: 100, top: 50, width: 600, height: 200 };
+    assert.equal(marqueeContainsComponent(selectionRect(90, 60, 710, 250), full, visible), false);
+    const all = selectionRect(0, 0, 1000, 500);
+    assert.equal(marqueeContainsComponent(all, full, { ...visible, top: 60, height: 190 }), false);
+    assert.equal(marqueeContainsComponent(all, full, { ...visible, height: 190 }), false);
+});
+
+test('reverse drag and scaled coordinates enclose visible width without changing ordinary selection', () => {
+    const full = { left: 40.25, top: 80.5, width: 1200.5, height: 148.25 };
+    const visible = { ...full, left: 160.5, width: 720.25 };
+    const range = selectionRect(881, 229, 160, 80);
+    assert.equal(marqueeContainsComponent(range, full, visible), true);
+    assert.equal(marqueeContainsComponent(range, full, full), false);
+    const small = { left: 180, top: 100, width: 80, height: 40 };
+    assert.equal(marqueeContainsComponent(range, small, small), fullyContains(range, small));
+});
+
+test('a clipped Row wins over enclosed children and retains hidden and offscreen descendants', () => {
+    const range = selectionRect(100, 10, 700, 110);
+    const full = { left: 0, top: 20, width: 1000, height: 80 };
+    const visible = { left: 100, top: 20, width: 600, height: 80 };
+    const candidates = marqueeContainsComponent(range, full, visible)
+        ? ['rowA', 'col', 'input']
+        : ['col', 'input'];
+    const selected = selection.combine(candidates).selected;
+    assert.deepEqual([...selected], ['rowA']);
+    assert.equal(selection.items(selected)[0].includesHidden, true);
+    assert.deepEqual(
+        selection.members('rowA').map((r) => r.location.modelId),
+        ['rowA'],
+    );
 });
 test('MAIN selection watcher invalidates without selecting and cleans up on matching stop', () => {
     const doc = new EventTarget(), win = new EventTarget();

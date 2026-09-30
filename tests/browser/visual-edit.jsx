@@ -40,6 +40,12 @@ window.addEventListener('message', e => {
 if (target.contentWindow.fixture) mount();
 document.querySelector('#verify').onclick = () => { document.querySelector('#checks').textContent = JSON.stringify(target.contentWindow.fixture.verify(), null, 2); };
 document.querySelector('#zoom').onclick = () => target.contentWindow.fixture.zoom();
+document
+    .querySelector('#scroll-left')
+    ?.addEventListener('click', () => target.contentWindow.fixture.scrollCanvas(false));
+document
+    .querySelector('#scroll-right')
+    ?.addEventListener('click', () => target.contentWindow.fixture.scrollCanvas(true));
 document.querySelector('#change').onclick = () => target.contentWindow.fixture.change();
 document.querySelector('#close').onclick = () => root.render(null);
 document.querySelector('#reopen').onclick = mount;

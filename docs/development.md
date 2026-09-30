@@ -94,6 +94,7 @@ Chrome MV3 로딩 방식에 맞춰 content는 단일 IIFE, background는 ESM으�
 아래는 현 구현에서 유지할 기능 기준입니다.
 
 - 화면 설계 선택 단위는 `visualEdit/policy.ts`가 결정합니다. Grid와 복합 컴포넌트 내부를 임의로 독립 편집하지 않습니다. 버튼에 남은 `elList`만으로 Grid 도구라고 판단하지 않습니다.
+- 화면 범위 선택은 가로로 잘린 항목의 **보이는 폭**과 **전체 높이**를 감싸야 합니다. 위아래가 잘리거나 완전히 화면 밖에 있는 항목은 제외하며, 선택한 부모의 화면 밖·숨김 자식은 기존처럼 함께 포함합니다. 이 판정은 Genie 선택 상태만 변경하고 Lamp7 모델·설정을 수정하지 않습니다.
 - 검색 위치 이동은 `scrollWithin`으로 범위를 제한합니다. 화면 검색은 캔버스 문서 내부, 로직 검색·선택 영역 노출은 문서 루트를 제외한 스크롤 패널, 검색 목록은 목록 영역만 이동합니다. `scrollIntoView`로 부모 프레임·숨겨진 레이아웃의 스크롤을 바꾸지 않으며 Lamp7 업무 데이터나 함수는 수정하지 않습니다.
 - 삭제는 Lamp7 기본 명령과 전후 처리를 사용합니다. 성공 여부는 실제 남은 모델로 확인합니다.
 - 화면 설계 붙여넣기는 `draggable`/`droppable`과 Lamp7 컨테이너 제약을 검사하고 필요한 Row·Col을 생성합니다. 텍스트 노드는 삽입 위치 후보가 아닙니다.
@@ -132,6 +133,7 @@ npx vite --host 127.0.0.1
 | `/tests/browser/visual-search.html` | 검색·숨김 안내·강조 표시·검색 후 원본 유지 |
 | `/tests/browser/scroll-boundary.html` | 검색 이동의 26px 밀림 재현, 화면·로직·목록 스크롤 범위와 중첩·확대율 검증 |
 | `/tests/browser/visual-edit.html` | 화면 설계 선택·삭제·복사·붙여넣기 |
+| `/tests/browser/visual-wide.html` | 가로 스크롤 좌우 위치의 범위 선택, 세로 전체 높이와 부모·숨김 자식 포함 |
 | `/tests/browser/visual-grid.html` | Grid 전체 선택과 반복 셀 |
 | `/tests/browser/visual-dependencies.html` | 복합 컴포넌트 선택 단위와 내부 항목 제한 |
 | `/tests/browser/edit-workspace.html` | 공통 조작 바·목록·로직 붙여넣기 |

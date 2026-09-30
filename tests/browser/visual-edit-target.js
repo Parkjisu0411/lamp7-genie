@@ -12,6 +12,10 @@ import { explainVisualPlacementFailure } from '../../src/features/visualEdit/pla
 const frame = document.querySelector('.gjs-frame');
 const gridFixture = new URLSearchParams(location.search).has('grid');
 const dependencyFixture = new URLSearchParams(location.search).has('dependencies');
+if (new URLSearchParams(location.search).has('wide')) {
+    document.querySelector('#gjs').style.overflowX = 'auto';
+    frame.style.width = 'calc(100% + 320px)';
+}
 const gridMarkup = `<section id="grid-a" eid="GridA" vid="v-grid-a" class="grid-compo">
     <h3>주문 Grid</h3><table id="grid-table"><thead id="grid-head"><tr id="grid-headers" class="grid-col-tr">
     <th id="grid-system" class="grid-col-select">선택</th><th id="grid-col-a" eid="OrderName" vid="v-col-name" class="grid-col-compo">주문명</th><th id="grid-col-b" eid="OrderQty" vid="v-col-qty" class="grid-col-compo">수량</th>
@@ -202,6 +206,10 @@ window.fixture = {
         } finally { abortVisualDelete(payload.modeId, payload.requestId); }
     },
     zoom() { frame.style.transform = frame.style.transform ? '' : 'scale(.8)'; frame.dispatchEvent(new Event('load')); },
+    scrollCanvas(end) {
+        const host = document.querySelector('#gjs');
+        host.scrollLeft = end ? host.scrollWidth : 0;
+    },
     change() { emit('component:update'); },
     verify() { return { unchanged: baseline === serialize(), nativeCalls, watching: [...listeners.values()].some(set => set.size), active: !!document.querySelector('#lamp7-genie-visual-edit'), deletionLog, remaining: walk(root).map(c => c.cid), settings: _settingInfo, events: _event, latest }; },
 };

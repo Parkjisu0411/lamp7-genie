@@ -100,3 +100,14 @@ export function fullyContains(outer: Rect, inner: Rect): boolean {
         inner.top + inner.height <= outer.top + outer.height
     );
 }
+
+/** Horizontal overflow may be offscreen; the full height must still be visible and enclosed. */
+export function marqueeContainsComponent(range: Rect, full: Rect, visible: Rect): boolean {
+    const required = {
+        left: visible.left,
+        width: visible.width,
+        top: full.top,
+        height: full.height,
+    };
+    return full.width > 0 && fullyContains(visible, required) && fullyContains(range, required);
+}
