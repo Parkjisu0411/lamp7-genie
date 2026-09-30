@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 import { transformVisualClipboard } from '../src/features/visualEdit/transformClipboard.ts';
 import { transferVisualComponents } from '../src/features/visualEdit/background/transferComponents.ts';
-import { visualPlacement, visualPasteWrappers } from '../src/features/visualEdit/placement.ts';
+import { pasteVisualSnapshot } from '../src/features/visualEdit/background/snapshotPaste.ts';
+import { visualPlacement } from '../src/features/visualEdit/placement.ts';
 import { placementDocument } from './fixtures/placementDom.mjs';
 import { buildSelectionPolicy } from '../src/features/visualEdit/policy.ts';
 import { watchVisualSelection } from '../src/features/visualEdit/background/watchSelection.ts';
@@ -16,64 +17,64 @@ const clipboard = (...nodes) => ({ kind: 'lamp7-genie/visual', version: 1, id: '
     roots: nodes.map(n => ({ node: n, type: 'Row', label: n.key, eid: n.attributes.eid, parentRole: 'screen', placement: { draggable: '.container-fluid,.container-content', textable: false } })), images: {}, tables: [] });
 const rename = id => `${id}1`;
 
-test('Cascader follows native Row placement, adds only a Row at root and rejects internal paste locations',async()=>{
-    const data=clipboard(node('cas',{classes:['form-col','cascader-compo'],data:{type:'cascader-compo',droppable:false},children:[
-        node('panel',{classes:['cascader-container'],data:{type:'none',droppable:true},children:[node('item',{classes:['cascader-item'],data:{type:'cascader-node'}})]}),
-    ]}));
-    data.roots[0].placement.draggable='.container-fluid,.container-content,.form-row:not(.tit-wrap)';
-    const f=fixture();
+// Snapshot creation/recovery contracts live in visualSnapshotPaste.test.mjs. These
+// tests isolate the transfer boundary: token validation, read-only preparation,
+// table cleanup, placement and the serialized native adapter handoff.
+test('paste delegates a detached snapshot without writing settings or images',async()=>{
+    const f=fixture(),data=clipboard(node('a'));
+    const before=JSON.stringify({settings:f.settings,images:f.images,events:f.eventData});
+    const source=JSON.stringify(data);
     const out=await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:data,position:'inside'});
-    assert.equal(out.error,undefined);
-    const addedRow=f.root.get('components').models.at(-1),cas=addedRow.get('components').models[0],panel=cas.get('components').models[0],item=panel.get('components').models[0];
-    assert.ok(addedRow.getEl().matches('.form-row'));
-    assert.ok(cas.getEl().matches('.cascader-compo'),'no extra Col wrapper');
-    assert.equal(visualPlacement(data.roots,addedRow,'inside'),true);
-    assert.equal(visualPlacement(data.roots,cas,'after'),true);
-    for(const destination of [cas,panel,item]) assert.equal(visualPlacement(data.roots,destination,'inside'),false);
-    assert.equal(visualPlacement(data.roots,item,'after'),false);
-    const title=fixture({children:[node('title',{classes:['form-row','tit-wrap'],data:{droppable:true}})]});
-    assert.equal(visualPlacement(data.roots,title.root.get('components').models[0],'inside'),false);
-    const col=fixture({children:[node('col',{classes:['form-col','multi-col'],data:{droppable:true}})]});
-    assert.equal(visualPlacement(data.roots,col.root.get('components').models[0],'inside'),false);
-    const legacy=clipboard(node('orphan',{classes:['cascader-item'],data:{type:'cascader-node'}}));
-    legacy.roots[0].placement.draggable=true;
-    assert.equal(visualPlacement(legacy.roots,f.root,'inside'),false,'old node-only clipboard is not pasted alone');
-});
-
-test('session lookup uses the page ajax transport asynchronously once and exposes HTTP failures', async () => {
-    const f = fixture();
-    const result = await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:clipboard(node('a')),position:'inside'});
-    assert.equal(result.error,undefined);
+    assert.equal(out.error,undefined); assert.deepEqual(out.createdIds,['native-result']);
+    assert.equal(f.delegated.length,1); assert.equal(f.calls.length,0);
+    assert.equal(JSON.stringify({settings:f.settings,images:f.images,events:f.eventData}),before);
+    assert.equal(JSON.stringify(data),source);
     assert.equal(f.stats.sessionRequests,1);
-    assert.deepEqual(f.stats.lastRequest,{
-        url:'/session-variable/search/all/lists?systemId=s',type:'GET',async:true,dataType:'json',timeout:15000,
-    });
-    const failed=fixture({sessionFailure:true});
-    const out=await failed.run({action:'paste',selection:failed.arm('paste',[failed.root]),clipboard:clipboard(node('a')),position:'inside'});
-    assert.match(out.error,/HTTP 403/);
-    assert.equal(failed.calls.length,0);
-    const missing=fixture(); delete missing.context.$;
-    const unavailable=await missing.run({action:'paste',selection:missing.arm('paste',[missing.root]),clipboard:clipboard(node('a')),position:'inside'});
-    assert.match(unavailable.error,/조회 기능에 연결/);
-    assert.equal(missing.calls.length,0);
 });
 
-test('one session lookup covers a batch; sessions affect eid only and internal IDs are always fresh', async () => {
-    const f = fixture({ sessions: [{ variableId: 'fresh' }, { variableId: 'fresh1' }, { variableId: 'vs2' }] });
-    const a = node('fresh', { attributes: { id: 'genie1', eid: 'fresh', vid: 'vs1' } });
-    const b = node('other');
-    b.attributes.for = 'genie1';
-    const result = await f.run({ action: 'paste', selection: f.arm('paste', [f.root]), clipboard: clipboard(a, b), position: 'inside' });
-    assert.equal(result.error, undefined);
-    assert.equal(f.stats.sessionRequests, 1);
-    assert.equal(f.idCalls.length, 0);
-    assert.equal(f.calls[0].attributes.eid, 'fresh11');
-    assert.notEqual(f.calls[0].attributes.id, 'genie1');
-    assert.equal(f.calls[0].attributes.vid, 'vs2');
-    assert.equal(f.calls[1].attributes.for, f.calls[0].attributes.id);
-    await f.run({ action: 'paste', selection: f.arm('paste', [f.root]), clipboard: clipboard(node('third')), position: 'inside' });
-    assert.equal(f.stats.sessionRequests, 2, 'next paste obtains a fresh session snapshot');
+test('native adapter handoff remains single-use and verifies the receiver and position',async()=>{
+    const f=fixture(),data=clipboard(node('a')),anchor=f.root.get('components').models[0];
+    const selection=f.arm('paste',[anchor],'after');
+    assert.equal((await f.run({action:'paste',selection,clipboard:data,position:'after'})).error,undefined);
+    assert.equal(f.delegated[0].index,anchor.index()+1);
+    assert.equal(f.delegated[0].parent,f.root.cid);
+    assert.ok((await f.run({action:'paste',selection,clipboard:data,position:'after'})).error);
+    assert.equal(f.delegated.length,1);
+    const fresh=f.arm('paste',[anchor],'before');
+    assert.ok((await f.run({action:'paste',selection:fresh,clipboard:data,position:'after'})).error);
+    assert.equal(f.delegated.length,1);
 });
+
+test('native handoff strips unavailable table bindings and copied events before creation',async()=>{
+    const f=fixture(),a=node('a',{setting:{id:'a',name:'A',dtId:'19334',tableRelInfo:'missing',dcId:'col',event:['click']}});
+    const out=await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:clipboard(a),position:'inside'});
+    assert.equal(out.error,undefined); assert.ok(out.removedConnections>0);
+    const setting=f.delegated[0].data.roots[0].node.setting;
+    assert.ok(!setting.dtId);assert.ok(!setting.tableRelInfo);assert.ok(!setting.dcId);
+    assert.deepEqual(setting.event,[]);
+});
+
+test('ID preparation reserves sessions and existing events before passing EIDs to native validation',async()=>{
+    const f=fixture({sessions:[{variableId:'fresh'}]});
+    const out=await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:clipboard(node('fresh')),position:'inside'});
+    assert.equal(out.error,undefined);
+    assert.notEqual(f.delegated[0].data.roots[0].node.attributes.eid,'fresh');
+    assert.equal(f.stats.sessionRequests,1);
+});
+
+test('native adapter failure returns real remaining IDs and releases mutation ownership',async()=>{
+    const f=fixture();
+    f.context.nativeDelegate=async (_data,_parent,_index,_valid,_report,mutate)=>{mutate(true);return {createdIds:['remaining'],error:'native cleanup failed'};};
+    const out=await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:clipboard(node('a')),position:'inside'});
+    assert.equal(out.error,'native cleanup failed');assert.deepEqual(out.createdIds,['remaining']);
+    assert.equal(f.window.__lamp7GenieVisualEdit.mutating,false);
+});
+
+
+
+
+
+
 
 test('failed or malformed session lookup and navigation during lookup cannot create components', async () => {
     for (const options of [{sessionFailure:true}, {sessions:{}}, {sessions:[{}]}]) {
@@ -86,24 +87,7 @@ test('failed or malformed session lookup and navigation during lookup cannot cre
     assert.match(result.error,/화면이 변경/); assert.equal(f.calls.length,0);
 });
 
-test('progress is scoped, reports completed roots, and invalidation at a yield prevents mutation', async () => {
-    const updates=[];
-    const f=fixture({progress:async(mode,request,text)=>updates.push({mode,request,text,created:f.calls.length})});
-    const selection=f.arm('paste',[f.root]);
-    const result=await f.run({action:'paste',selection,clipboard:clipboard(node('a'),node('b')),position:'inside'});
-    assert.equal(result.error,undefined);
-    assert.ok(updates.every(p=>p.mode===selection.modeId && p.request===selection.requestId));
-    assert.equal(updates[0].text,'ID 확인 중…');
-    assert.ok(updates.some(p=>p.text==='붙여넣는 중 0 / 2' && p.created===0));
-    assert.equal(updates.at(-1).text,'화면 반영 완료 2 / 2');
-    assert.equal(updates.at(-1).created,2);
-    const g=fixture({progress:async(_mode,_request,text)=>{
-        if(text.startsWith('붙여넣는 중')) delete g.window.__lamp7GenieVisualEdit;
-    }});
-    const before=JSON.stringify(g.settings);
-    const stopped=await g.run({action:'paste',selection:g.arm('paste',[g.root]),clipboard:clipboard(node('a')),position:'inside'});
-    assert.match(stopped.error,/화면이 변경/); assert.equal(g.calls.length,0); assert.equal(JSON.stringify(g.settings),before);
-});
+
 
 test('internal sibling links follow new IDs; external references never attach to same-ID target items', async()=> {
     const a = node('a'), label = node('label');
@@ -239,7 +223,13 @@ function fixture(options={}) {
         off(names,fn){for(const name of names.split(' '))listeners.get(name)?.delete(fn);}};
     const idCalls=[];
     const seq = {};
+    const delegated=[];
     const context=vm.createContext({onProgress:options.progress,URL,fetch:()=>{throw Error('Native ajax transport must be used');},
+        nativeDelegate: async (data,parent,index,valid,progress,mutation) => {
+            assert.equal(valid(),true); delegated.push({data:structuredClone(data),index,parent:parent.cid});
+            mutation(true); mutation(false);
+            return {createdIds:['native-result']};
+        },
         $:{ajax(request){
             stats.sessionRequests=(stats.sessionRequests||0)+1;
             stats.lastRequest={url:request.url,type:request.type,async:request.async,dataType:request.dataType,timeout:request.timeout};
@@ -267,8 +257,8 @@ function fixture(options={}) {
         return selection;
     };
     const run=async payload=>JSON.parse(JSON.stringify(await vm.runInContext(`(${transferVisualComponents.toString()})(payload,sources)`,Object.assign(context,{payload,
-        sources:{progress:options.progress ? 'async function(mode,request,text){await onProgress(mode,request,text);}' : undefined,reader:'function(){return snapshot();}',policy:buildSelectionPolicy.toString(),transform:transformVisualClipboard.toString(),placement:visualPlacement.toString(),wrappers:visualPasteWrappers.toString()}}))));
-    return {run,arm,root,wrapper,walk,settings,images,eventData,calls,idCalls,stats,context,window,frame,document,CustomEvent};
+        sources:{snapshotPaste:options.realPaste?pasteVisualSnapshot.toString():'async function(...args){return nativeDelegate(...args);}',progress:options.progress ? 'async function(mode,request,text){await onProgress(mode,request,text);}' : undefined,reader:'function(){return snapshot();}',policy:buildSelectionPolicy.toString(),transform:transformVisualClipboard.toString(),placement:visualPlacement.toString()}}))));
+    return {run,arm,root,wrapper,walk,settings,images,eventData,calls,idCalls,stats,context,window,frame,document,CustomEvent,delegated};
 }
 
 test('copy captures hidden descendants and style as JSON without touching source or events',async()=>{
@@ -285,86 +275,45 @@ test('copy captures hidden descendants and style as JSON without touching source
     assert.deepEqual(out.clipboard.roots[0].node.children[0].style,{display:'none'});
 });
 
-test('paste preserves free IDs, uses native allocators on collisions, and never changes existing settings/events',async()=>{
-    const f=fixture(), a=node('existing'), b=node('fresh');a.setting.labelId='fresh';b.setting.valueId='existing';
-    const before=JSON.stringify(f.eventData), original=structuredClone(f.settings);
-    const out=(await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:clipboard(a,b),position:'inside'}));
-    assert.equal(out.error,undefined);assert.equal(out.createdIds.length,2);
-    assert.equal(f.calls[0].attributes.eid,'existing1'); assert.equal(f.calls[1].attributes.eid,'fresh');
-    assert.equal(f.settings[f.calls[0].attributes.vid].labelId,'fresh');assert.equal(f.settings[f.calls[1].attributes.vid].valueId,'existing1');
-    for(const [key,value] of Object.entries(original))assert.deepEqual(f.settings[key],value);
-    assert.equal(JSON.stringify(f.eventData),before); assert.equal(f.idCalls.length,0); assert.equal(f.stats.sessionRequests,1);
-    assert.equal(f.window.__lamp7GenieVisualEdit.mutating,false);
-});
-
-test('partial append failure keeps completed roots and discards uncreated settings/images',async()=>{
-    const f=fixture({failAt:2}), data=clipboard(node('a'),node('b'));data.images.b={fileData:'data:image/png;base64,AA'};
-    data.roots[0].node.setting.labelId='b';data.roots[0].node.attributes.labelid='b';
-    const out=(await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:data,position:'inside'}));
-    assert.match(out.error,/append failure/); assert.equal(out.createdIds.length,1);
-    assert.ok(f.settings[f.calls[0].attributes.vid]);assert.equal(Object.values(f.settings).some(s=>s.id==='b'),false);assert.equal(f.images.b,undefined);
-    assert.equal(Object.values(f.settings).find(s=>s.id==='a').labelId,'');
-    assert.equal(f.walk().find(m=>m.get('attributes').eid==='a').get('attributes').labelid,undefined);
-    assert.equal(f.window.__lamp7GenieVisualEdit.mutating,false);
-});
-
-test('derived suffix collisions advance the owner and reserve the entire family',async()=>{
-    const f=fixture();f.eventData.eventInfos.push({eid:'duration│from'});
-    const p=node('duration',{classes:['duration-date-compo'],children:[node('duration│from'),node('duration│to')]});
-    const out=(await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:clipboard(p),position:'inside'}));
-    assert.equal(out.error,undefined);const created=f.walk().find(m=>m.get('attributes').eid==='duration1');assert.ok(created);
-    assert.deepEqual(created.get('components').models.map(m=>m.get('attributes').eid),['duration1│from','duration1│to']);
-});
-
-test('missing table or column clears only unavailable bindings and preserves the copied structure',async()=>{
-    const f=fixture({tables:[{dtId:1,layoutKey:'table',columns:{2:{dcId:2}}}]}),data=clipboard(node('a'),node('b'),node('c'));
-    for(const [i,root] of data.roots.entries()) {
-        Object.assign(root.node.setting,{dtId:i===2?'19334':'1',dcId:i===0?'3':'2',tableRelInfo:i===2?'missing':'table',tableName:'Source',columnName:'SourceCol',name:'Keep label',essYn:'Y'});
-        Object.assign(root.node.attributes,{dtid:root.node.setting.dtId,dcid:root.node.setting.dcId,layoutkey:root.node.setting.tableRelInfo});
-        root.node.style={color:'red'};
-    }
-    const original=JSON.stringify(data);
+test('real snapshot handoff preserves EIDs, allocates fresh internal IDs and queries sessions once',async()=>{
+    const f=fixture({realPaste:true}),a=node('a'),label=node('label');
+    a.setting={id:'a',labelId:'label',hiddenYn:'Y',mandatoryYn:['Y'],event:['click']};a.attributes.labelid='label';
+    label.setting={id:'label',valueId:'a',mandatoryYn:['Y']};label.attributes.valueid='a';
+    const data=clipboard(a,label),before=JSON.stringify(data);
     const result=await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:data,position:'inside'});
-    assert.equal(result.error,undefined);assert.equal(result.createdIds.length,3);
-    for(const i of [0,2]) {
-        const created=f.calls[i],setting=f.settings[created.attributes.vid];
-        assert.equal(setting.dtId,'');assert.equal(setting.dcId,'');assert.equal(setting.tableName,'');assert.equal(setting.essYn,'');
-        assert.equal(created.attributes.dtid,undefined);assert.equal(created.attributes.layoutkey,undefined);
-        assert.equal(setting.name,'Keep label');assert.equal(created.style.color,'red');
-    }
-    assert.equal(f.settings[f.calls[1].attributes.vid].dtId,'1');
-    assert.equal(f.calls[1].attributes.dcid,'2');assert.equal(JSON.stringify(data),original);
+    assert.equal(result.error,undefined);assert.equal(result.createdIds.length,2);
+    const added=f.root.get('components').models.slice(1),[input,text]=added.map(m=>m.getAttributes());
+    assert.equal(input.eid,'a');assert.equal(text.eid,'label');
+    assert.notEqual(input.id,'dom-a');assert.notEqual(input.vid,'v-a');
+    assert.equal(f.settings[input.vid].labelId,text.eid);assert.equal(f.settings[text.vid].valueId,input.eid);
+    assert.equal(f.settings[input.vid].hiddenYn,'Y');assert.equal(f.settings[input.vid].event.length,0);
+    assert.equal(f.stats.sessionRequests,1);assert.equal(f.idCalls.length,0);assert.equal(f.calls.length,2);
+    assert.equal(JSON.stringify(data),before);assert.equal(f.window.__lamp7GenieVisualEdit.mutating,false);
 });
 
-test('native event IDs and orphaned setting keys are reserved without copying event definitions',async()=>{
-    const f=fixture();f.settings['v-fresh']={original:true};
-    const out=(await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:clipboard(node('event-reserved'),node('fresh')),position:'inside'}));
-    assert.equal(out.error,undefined);assert.equal(f.calls[0].attributes.eid,'event-reserved1');
-    assert.notEqual(f.calls[1].attributes.vid,'v-fresh');assert.deepEqual(f.settings['v-fresh'],{original:true});
+test('real import clears missing table only and keeps existing same-ID component unchanged',async()=>{
+    const f=fixture({realPaste:true}),a=node('existing');a.setting.dtId='19334';a.setting.dcId='col';a.setting.tableRelInfo='absent';
+    const original=JSON.stringify(f.settings['v-existing']);
+    const result=await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:clipboard(a),position:'inside'});
+    assert.equal(result.error,undefined);assert.equal(result.createdIds.length,1);assert.ok(result.removedConnections);
+    const attrs=f.root.get('components').models[1].getAttributes();assert.notEqual(attrs.eid,'existing');
+    assert.equal(f.settings[attrs.vid].dtId,'');assert.equal(f.settings[attrs.vid].dcId,'');
+    assert.equal(JSON.stringify(f.settings['v-existing']),original);
 });
 
-test('stale identity, wrong operation and consumed tokens cannot paste; lost response is safe to retry only with a new selection',async()=>{
-    for(const issue of ['identity','operation','consumed']) {
-        const f=fixture(),selection=f.arm(issue==='operation'?'copy':'paste',[f.root]);
-        if(issue==='identity')selection.locations[0].eid='wrong';
-        if(issue==='consumed')f.window.__lamp7GenieVisualEdit.operation.consumed=true;
-        const out=(await f.run({action:'paste',selection,clipboard:clipboard(node('a')),position:'inside'}));
-        assert.ok(out.error);assert.equal(f.calls.length,0);
-    }
-    const f=fixture(),payload={action:'paste',selection:f.arm('paste',[f.root]),clipboard:clipboard(node('a')),position:'inside'};
-    assert.equal((await f.run(payload)).error,undefined);assert.ok((await f.run(payload)).error);assert.equal(f.calls.length,1);
-});
 
-test('incompatible placement fails before writes; after inserts immediately after anchor',async()=>{
-    const f=fixture(),data=clipboard(node('a'));
-    const before=JSON.stringify(f.settings);
-    data.tables=[];data.roots[0].placement.draggable=false;
-    assert.ok((await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:data,position:'inside'})).error);
-    data.roots[0].placement.draggable='.container-fluid';
-    const anchor=f.root.get('components').models[0];
-    const out=(await f.run({action:'paste',selection:f.arm('paste',[anchor],'after'),clipboard:data,position:'after'}));
-    assert.equal(out.error,undefined);assert.equal(f.root.get('components').models[1].get('attributes').eid,'a');
-});
+
+
+
+
+
+
+
+
+
+
+
+
 
 test('target discovery is read-only; pending DOM mutation invalidation stops paste before writes',async()=>{
     const f=fixture(),data=clipboard(node('a'));
@@ -375,25 +324,9 @@ test('target discovery is read-only; pending DOM mutation invalidation stops pas
     assert.equal(f.calls.length,0);assert.equal(f.settings['v-a'],undefined);
 });
 
-test('before inserts roots in copy order and a changed pointer position cannot reuse its lock',async()=>{
-    const f=fixture(), anchor=f.root.get('components').models[0];
-    const clipboardData=clipboard(node('a'),node('b'));
-    const bad=(await f.run({action:'paste',selection:f.arm('paste',[anchor],'after'),clipboard:clipboardData,position:'before'}));
-    assert.ok(bad.error);assert.equal(f.calls.length,0);
-    const out=(await f.run({action:'paste',selection:f.arm('paste',[anchor],'before'),clipboard:clipboardData,position:'before'}));
-    assert.equal(out.error,undefined);
-    assert.deepEqual(f.root.get('components').models.map(m=>m.get('attributes').eid),['a','b','existing']);
-});
 
-test('mixed original parents use effective native rules and both halves of validTarget',async()=>{
-    const f=fixture(), data=clipboard(node('a'),node('b'));
-    data.roots[0].parentRole='col'; data.roots[1].parentRole='content';
-    data.roots[0].placement.draggable=['.container-fluid'];
-    assert.equal((await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:data,position:'inside'})).error,undefined);
-    const blocked=fixture({droppable:'.btn-compo'});
-    assert.match((await blocked.run({action:'targets',clipboard:data})).error,/넣을 수 있는 위치/);
-    assert.equal(blocked.calls.length,0);
-});
+
+
 
 test('disjoint individual destinations explain no common location; no subset is pasted',async()=>{
     const f=fixture({droppable:false,children:[node('a-slot',{classes:['slot-a'],data:{type:'col',droppable:true}}),node('b-slot',{classes:['slot-b'],data:{type:'col',droppable:true}})]});
@@ -426,42 +359,11 @@ test('copy explicitly captures effective defaults; older clipboard asks for reco
     assert.match((await f.run({action:'targets',clipboard:copied.clipboard})).error,/다시 복사/);
 });
 
-test('Input at root creates native Row and value Col; new settings reserve clipboard and orphan IDs',async()=>{
-    const f=fixture(), data=clipboard(node('row1',{data:{type:'col-compo',tagName:'input'},classes:['input-compo']}));
-    f.settings.vs1={original:true};
-    const out=(await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:data,position:'inside'}));
-    assert.equal(out.error,undefined); assert.equal(out.createdIds.length,1);
-    const row=f.root.get('components').models[1],col=row.get('components').models[0],input=col.get('components').models[0];
-    assert.ok(row.getEl().matches('.form-row'));assert.ok(col.getEl().matches('.form-col.value-col.multi-col'));
-    assert.equal(input.get('attributes').eid,'row1');assert.notEqual(row.get('attributes').eid,'row1');
-    assert.equal(f.settings[col.get('attributes').vid].name,'Col');assert.deepEqual(f.settings.vs1,{original:true});
-    assert.equal(f.walk().filter(m=>m.getEl().matches('.col-form-label')).length,0,'no external/automatic labels');
-});
 
-test('Row target wraps controls in ordered Cols; a permitted multi-col accepts Button directly',async()=>{
-    const row=node('dest',{data:{type:'row',droppable:'[class*=-compo]'},classes:['form-row']});
-    const f=fixture({children:[row]}), dest=f.root.get('components').models[0];
-    const data=clipboard(node('input',{data:{type:'col-compo',tagName:'input'},classes:['input-compo']}),node('button',{data:{type:'text-compo',tagName:'button'},classes:['btn-compo']}));
-    data.roots.forEach(r=>r.placement.draggable='.form-row,.multi-col');
-    assert.equal((await f.run({action:'paste',selection:f.arm('paste',[dest]),clipboard:data,position:'inside'})).error,undefined);
-    assert.deepEqual(dest.get('components').models.map(m=>m.get('components').models[0].get('attributes').eid),['input','button']);
-    const col=dest.get('components').models[1];
-    const button=clipboard(node('another',{data:{type:'text-compo',tagName:'button'},classes:['btn-compo']}));button.roots[0].placement.draggable='.multi-col';
-    assert.equal((await f.run({action:'paste',selection:f.arm('paste',[col]),clipboard:button,position:'inside'})).error,undefined);
-    assert.equal(col.get('components').models[1].get('attributes').eid,'another');
-});
 
-test('wrapper integration is preflighted and partial wrappers repair only surviving copy links',async()=>{
-    const data=clipboard(node('a',{classes:['input-compo']}),node('b',{classes:['input-compo']}));data.roots[0].node.setting.labelId='b';
-    const missing=fixture(); delete missing.context.BlockHelper;
-    assert.match((await missing.run({action:'paste',selection:missing.arm('paste',[missing.root]),clipboard:data,position:'inside'})).error,/Row·Col/);
-    assert.equal(missing.calls.length,0);assert.equal(missing.settings['v-a'],undefined);
-    const f=fixture({failAt:4});
-    const out=(await f.run({action:'paste',selection:f.arm('paste',[f.root]),clipboard:data,position:'inside'}));
-    assert.match(out.error,/append failure/);assert.equal(out.createdIds.length,1);
-    assert.equal(Object.values(f.settings).find(s=>s.id==='a').labelId,'');assert.equal(f.settings['v-b'],undefined);
-    assert.equal(Object.keys(f.settings).filter(k=>k.startsWith('vs')).length,3);
-});
+
+
+
 
 test('Lamp7 rejects nested Repeat, Comment in Repeat and Repeat plus another Container in one Row before writes',async()=>{
     const repeated=node('repeat',{classes:['default-container','repeat-container','container-content'],data:{type:'col',droppable:true}});
@@ -477,15 +379,7 @@ test('Lamp7 rejects nested Repeat, Comment in Repeat and Repeat plus another Con
     assert.equal(g.calls.length,0);
 });
 
-test('paste validates only the live locked receiver, with no search snapshots or repeated native free-ID checks',async()=>{
-    const f=fixture(),selection=f.arm('paste',[f.root]);
-    f.stats.snapshots=0;
-    const result=(await f.run({action:'paste',selection,clipboard:clipboard(node('fresh')),position:'inside'}));
-    assert.equal(result.error,undefined);assert.equal(result.records,undefined);
-    assert.equal(f.stats.snapshots,0);
-    assert.deepEqual(f.idCalls,[]); assert.equal(f.stats.sessionRequests,1);
-    assert.notEqual(f.calls[0].attributes.id,'dom-fresh');assert.notEqual(f.calls[0].attributes.vid,'v-fresh');
-});
+
 
 test('direct paste validation still rejects changed DOM attributes and moved ID-less receiver paths',async()=>{
     for(const issue of ['attribute','path']) {

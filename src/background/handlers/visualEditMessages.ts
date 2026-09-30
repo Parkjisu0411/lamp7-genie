@@ -1,9 +1,9 @@
-import { publishPasteProgress } from '../../shared/pasteProgress';
 import { deleteVisualComponents } from '../../features/visualEdit/background/deleteComponents';
+import { pasteVisualSnapshot } from '../../features/visualEdit/background/snapshotPaste';
 import { transferVisualComponents } from '../../features/visualEdit/background/transferComponents';
 import { watchVisualSelection } from '../../features/visualEdit/background/watchSelection';
 import { getVisualClipboard, setVisualClipboard } from '../../features/visualEdit/clipboard';
-import { visualPasteWrappers, visualPlacement } from '../../features/visualEdit/placement';
+import { visualPlacement } from '../../features/visualEdit/placement';
 import { buildSelectionPolicy } from '../../features/visualEdit/policy';
 import type { VisualClipboard } from '../../features/visualEdit/transferTypes';
 import { transformVisualClipboard } from '../../features/visualEdit/transformClipboard';
@@ -11,6 +11,7 @@ import type { VisualDeleteSelection, VisualEditMount } from '../../features/visu
 import { readVisualComponents } from '../../features/visualSearch/background/readComponents';
 import type { VisualComponentRecord } from '../../features/visualSearch/types';
 import { readFrameMemory } from '../../shared/mainWorld/readFrameMemory';
+import { publishPasteProgress } from '../../shared/pasteProgress';
 import type { TargetContext } from '../../shared/targets/types';
 import type { ExtensionMessage, ExtensionResponse } from '../../shared/types/messages';
 import { sendToFrame } from '../messaging';
@@ -384,6 +385,6 @@ function transferSources() {
         policy: buildSelectionPolicy.toString(),
         transform: transformVisualClipboard.toString(),
         placement: visualPlacement.toString(),
-        wrappers: visualPasteWrappers.toString(),
+        snapshotPaste: pasteVisualSnapshot.toString(),
     };
 }

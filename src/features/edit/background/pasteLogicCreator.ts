@@ -30,27 +30,8 @@ export function pasteCopiedLogicsInMainWorld(
     const created: CreatedLamp7Logic[] = [];
     const errors: EditPasteLogicsResponseData['errors'] = [];
     let validationWarnings = 0;
-    let restoreGridReader = () => {};
     let variables: ReturnType<typeof localVariableTransfer> | undefined;
     try {
-        // Some screens intentionally omit input/output grids. Native display methods
-        // still query them and call .find on jqGrid's {} result. Scope this adapter to
-        // the synchronous paste only; real grids and their data remain untouched.
-        const gridHelper = helpers.readBinding('JqGridHelper') as
-            | {
-                  getGridDataAll?: (grid: unknown) => unknown;
-              }
-            | undefined;
-        if (typeof gridHelper?.getGridDataAll === 'function') {
-            const original = gridHelper.getGridDataAll;
-            gridHelper.getGridDataAll = function (grid: unknown) {
-                if (!grid || (grid as { length?: number }).length === 0) return { data: [] };
-                return original.call(this, grid);
-            };
-            restoreGridReader = () => {
-                gridHelper.getGridDataAll = original;
-            };
-        }
         const context = readContext(payload.modeId, helpers);
         const expected = payload.context;
         const editor = helpers.readBinding('LogicEditor') as LogicEditorMainWorld;
@@ -101,6 +82,13 @@ export function pasteCopiedLogicsInMainWorld(
             if (position === 'root-start') before = area.firstElementChild;
         } else throw Error('붙여넣을 위치를 선택해 주세요.');
         if (!container || !area.contains(container)) throw Error('대상 영역을 찾을 수 없습니다.');
+        if (
+            typeof (helpers.readBinding('Sortable') as { get?: unknown } | undefined)?.get !==
+                'function' ||
+            typeof (helpers.readBinding('LogicEventHandler') as LogicEventHandlerMainWorld)
+                ?.setLogicBlockNestedSortable !== 'function'
+        )
+            throw Error('Lamp7 기본 로직 이동 기능을 찾을 수 없습니다.');
 
         // Validate the copied forest before creation; a failed copied parent never falls back to root.
         variables = transferVariables?.(
@@ -202,29 +190,102 @@ export function pasteCopiedLogicsInMainWorld(
             }
         }
         if (created.length) {
-            // Native renderLogics ends by passing its input subset to connectConditionLogic,
-            // but that method indexes by GLOBAL seq. ELSE/ELSEIF would index past the subset.
-            // Use a per-call receiver: keep native methods/globals untouched and render only new rows.
-            const connect = (
-                renderer as LogicRendererMainWorld & {
-                    connectConditionLogic?: (logics: unknown[]) => void;
-                }
-            ).connectConditionLogic;
-            if (typeof connect === 'function') {
-                const receiver = Object.create(renderer);
-                if (renderer.logic) receiver.logic = renderer.logic.bind(renderer);
-                receiver.connectConditionLogic = () => connect.call(renderer, editor.getAll());
-                renderer.renderLogics.call(receiver, created);
-            } else renderer.renderLogics(created);
-            for (const logic of roots) {
-                const el = element(logic);
-                if (!el || !area.contains(el))
-                    throw Error('생성한 로직의 화면 위치를 확인할 수 없습니다.');
-                container.insertBefore(el, before);
+            // Native rendering owns row creation. No derived renderer receiver or
+            // global reader replacement: upstream rendering failures stay visible.
+            try {
+                renderer.renderLogics(created);
+            } catch (error) {
+                const stack =
+                    error && typeof error === 'object' && 'stack' in error
+                        ? String(error.stack)
+                        : '';
+                const connector = (
+                    renderer as LogicRendererMainWorld & {
+                        connectConditionLogic?: (items: unknown[]) => void;
+                    }
+                ).connectConditionLogic;
+                // Local Lamp7's connector indexes a subset using global sequence
+                // numbers. Recover only that final stage, after all rows exist.
+                if (
+                    !stack.includes('connectConditionLogic') ||
+                    typeof connector !== 'function' ||
+                    created.some((logic) => !element(logic) || !area.contains(element(logic)))
+                )
+                    throw error;
+                connector.call(renderer, editor.getAll());
             }
-            // Native move: DOM -> seq/lvl -> parentId + parentTranId (including nested payloads)
-            // -> condition connectors -> validation of affected logics and descendants.
-            editor.resetLogicLevelAndSeqAll!();
+            const handler = helpers.readBinding('LogicEventHandler') as LogicEventHandlerMainWorld;
+            const currentToggle = helpers.unwrapElement(
+                jq.divTab!('#' + context.tabKey + 'logicMoveToggle'),
+            );
+            handler?.setLogicBlockNestedSortable?.({
+                disabled: !currentToggle?.classList.contains('move-on'),
+            });
+            type Sorter = {
+                toArray(): string[];
+                sort(ids: string[], animate?: boolean): void;
+                option(name: string, value?: unknown): unknown;
+                options: { onStart?: (event: unknown) => void; onEnd?: (event: unknown) => void };
+            };
+            const sortable = (
+                helpers.readBinding('Sortable') as { get(el: HTMLElement): Sorter } | undefined
+            )?.get(container);
+            if (
+                !sortable?.sort ||
+                !sortable.option ||
+                !sortable.options.onStart ||
+                !sortable.options.onEnd
+            )
+                throw Error('Lamp7 기본 로직 이동 기능을 찾을 수 없습니다.');
+            const elements = Array.from(container.children);
+            const rootElements = roots.map((logic) => element(logic));
+            if (rootElements.some((el) => !el || el.parentElement !== container))
+                throw Error('생성한 로직이 대상 부모 아래에 없습니다.');
+            const ordered = elements.filter((el) => !rootElements.includes(el as HTMLElement));
+            const at = before ? ordered.indexOf(before) : ordered.length;
+            if (at < 0) throw Error('붙여넣을 위치가 변경되었습니다.');
+            ordered.splice(at, 0, ...(rootElements as HTMLElement[]));
+            const event = {
+                item: rootElements[0],
+                items: rootElements,
+                from: container,
+                to: container,
+            };
+            // Same lifecycle as Lamp7 drag: capture affected neighbors, native sort,
+            // then native onEnd updates levels, parents, transactions and validation.
+            // Sortable's fallback hashes can collide for identical logic captions.
+            // Temporary Genie UI markers give its public sort API unique keys.
+            const marker = 'data-genie-sort-key';
+            const oldAttribute = sortable.option('dataIdAttr');
+            const previousMarkers = elements.map((el) => el.getAttribute(marker));
+            try {
+                elements.forEach((el, i) => el.setAttribute(marker, String(i)));
+                sortable.option('dataIdAttr', marker);
+                const ids = sortable.toArray();
+                if (ids.length !== elements.length || new Set(ids).size !== ids.length)
+                    throw Error('로직 이동 순서를 확인할 수 없습니다.');
+                sortable.options.onStart.call(sortable, event);
+                sortable.sort(
+                    ordered.map((el) => ids[elements.indexOf(el)]),
+                    false,
+                );
+                sortable.options.onEnd.call(sortable, event);
+            } finally {
+                sortable.option('dataIdAttr', oldAttribute);
+                elements.forEach((el, i) => {
+                    const value = previousMarkers[i];
+                    if (value === null) el.removeAttribute(marker);
+                    else el.setAttribute(marker, value);
+                });
+                const toggle = helpers.unwrapElement(
+                    jq.divTab!('#' + context.tabKey + 'logicMoveToggle'),
+                );
+                handler.setLogicBlockNestedSortable?.({
+                    disabled: !toggle?.classList.contains('move-on'),
+                });
+            }
+            if (ordered.some((el, i) => container.children[i] !== el))
+                throw Error('기본 로직 이동 결과가 요청한 위치와 다릅니다.');
             if (position === 'inside') anchor?.expand?.();
             created.forEach(neighbors);
             for (const logic of all) {
@@ -281,7 +342,5 @@ export function pasteCopiedLogicsInMainWorld(
             errors,
             setupError: `${created.length ? '일부 로직 생성 후 중단했습니다. ' : ''}${error instanceof Error ? error.message : String(error)}`,
         };
-    } finally {
-        restoreGridReader();
     }
 }

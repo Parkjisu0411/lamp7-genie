@@ -7,7 +7,7 @@ import { buildSelectionPolicy } from '../../src/features/visualEdit/policy';
 import { dependencyMarkup, dependencySettings } from './visual-dependencies-data';
 import { transferVisualComponents } from '../../src/features/visualEdit/background/transferComponents';
 import { transformVisualClipboard } from '../../src/features/visualEdit/transformClipboard';
-import { visualPlacement, visualPasteWrappers } from '../../src/features/visualEdit/placement';
+import { visualPlacement } from '../../src/features/visualEdit/placement';
 const frame = document.querySelector('.gjs-frame');
 const gridFixture = new URLSearchParams(location.search).has('grid');
 const dependencyFixture = new URLSearchParams(location.search).has('dependencies');
@@ -181,7 +181,7 @@ window.fixture = {
         try {
             // Optional explicit delay for busy/duplicate-click tests, never a product delay.
             if(new URLSearchParams(parent.location.search).has('slow'))await new Promise(resolve=>setTimeout(resolve,350));
-            const data=transferVisualComponents({action,selection,clipboard,position:payload.position},transferSources());
+            const data=await transferVisualComponents({action,selection,clipboard,position:payload.position},transferSources());
             if(action==='copy'&&data.clipboard&&!data.error){stopVisualEdit(payload.modeId);return {success:true,data};}
             if(action==='paste'){stopVisualEdit(payload.modeId);return {success:!data.error,data,error:data.error};}
             const refreshed=endVisualDelete(payload.modeId,payload.requestId,{deletedIds:[],cascadedIds:[],remainingIds:data.createdIds??[],records:data.records});
@@ -204,5 +204,23 @@ window.fixture = {
     change() { emit('component:update'); },
     verify() { return { unchanged: baseline === serialize(), nativeCalls, watching: [...listeners.values()].some(set => set.size), active: !!document.querySelector('#lamp7-genie-visual-edit'), deletionLog, remaining: walk(root).map(c => c.cid), settings: _settingInfo, events: _event, latest }; },
 };
-function transferSources() {return {progress:publishPasteProgress.toString(),reader:readVisualComponents.toString(),policy:buildSelectionPolicy.toString(),transform:transformVisualClipboard.toString(),placement:visualPlacement.toString(),wrappers:visualPasteWrappers.toString()};}
+// UI fixture only: simulate the adapter's result on this disposable model tree.
+// Production JSON import and native hooks are covered by visualSnapshotPaste.test.mjs.
+window.fixtureNativePaste = async (clipboard, parent, at, valid, progress, mutation) => {
+    const createdIds=[];
+    const serialize=node=>({...node.data,classes:node.classes,attributes:node.attributes,style:node.style,components:node.children.map(serialize)});
+    try {
+        for(const [i,item] of clipboard.roots.entries()) {
+            mutation(false);await progress(`테스트 항목 생성 ${i+1} / ${clipboard.roots.length}`);
+            if(!valid()) throw Error('테스트 화면이 변경되었습니다.');
+            mutation(true);
+            const [model]=parent.append(serialize(item.node),{at:at++});
+            const settings=node=>{if(node.setting)_settingInfo[node.attributes.vid]=structuredClone(node.setting);node.children.forEach(settings);};
+            settings(item.node);createdIds.push(model.cid);
+        }
+        return {createdIds};
+    } catch(error) {return {createdIds,error:error.message};}
+    finally {mutation(false);}
+};
+function transferSources() {return {progress:publishPasteProgress.toString(),reader:readVisualComponents.toString(),policy:buildSelectionPolicy.toString(),transform:transformVisualClipboard.toString(),placement:visualPlacement.toString(),snapshotPaste:'async (...args) => fixtureNativePaste(...args)'};}
 parent.postMessage({ fixture: 'visual-edit-ready' }, location.origin);

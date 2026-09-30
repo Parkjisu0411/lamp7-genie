@@ -16,6 +16,7 @@ export function logicHarness() {
         getClientRects(){return [{}];}
         getAttribute(k){return this.attrs[k]??null;}
         setAttribute(k,v){this.attrs[k]=v;}
+        removeAttribute(k){delete this.attrs[k];}
         querySelector(s){return this.querySelectorAll(s)[0]||null;}
         querySelectorAll(s){return this.children.flatMap(c=>[(s==='[id]'?!!c.id:s==='.head-logic.editable'?c.classes.has('editable'):c.classes.has(s.slice(1)))?c:null,...c.querySelectorAll(s)]).filter(Boolean);}
     }
@@ -49,6 +50,7 @@ export function logicHarness() {
     const wrap=items=>({remove(){},prepend(){},0:items[0],length:items.length,[Symbol.iterator]:()=>items[Symbol.iterator](),children:s=>wrap(items.flatMap(n=>n.children).filter(n=>!s||n.classes.has(s.slice(1)))),hasClass:c=>items[0]?.classes.has(c),addClass:c=>items.forEach(n=>n.classes.add(c)),removeClass:c=>items.forEach(n=>n.classes.delete(c))});
     const jq=n=>wrap([n]);jq.divTab=s=>s==='.logic_area'?wrap([area]):wrap(nodes.has(s.slice(1))?[nodes.get(s.slice(1))]:[]);
     const env={LogicEditor:editor,LogicRenderer:renderer,LogicUtils:utils,Logic,ConditionLogic,IterationLogic,VariableLogic,TransactionLogic,LogicEventHandler:{setLogicBlockNestedSortable(){calls.sort++;}},$:jq,_tabId_:'tab-A'};
+    env.Sortable={get(container){let attribute='data-id';return {option(name,value){if(arguments.length===1)return attribute;attribute=value;},toArray:()=>container.children.map(el=>el.getAttribute(attribute)||el.id),sort(ids){const order=ids.map(id=>container.children.find(el=>(el.getAttribute(attribute)||el.id)===id));for(const el of order)container.append(el);},options:{onStart(){calls.nativeStart=(calls.nativeStart||0)+1;},onEnd(){calls.nativeEnd=(calls.nativeEnd||0)+1;editor.resetLogicLevelAndSeqAll();}}};}};
     const helpers={readBinding:n=>env[n],asStringId:v=>v==null?'':String(v).trim(),unwrapElement:n=>n && 'length' in n ? n[0]||null : n||null};
     function seed(items){const created=items.map(raw=>editor.createLogic(raw.id,raw.type,'',structuredClone(raw)));renderer.renderLogics(created);calls.create=0;validated.length=0;rendered.length=0;}
     function start(modeId='paste-1'){const context=prepareLogicPasteContext(modeId,helpers,readLogicPasteContext);host.dataset={pasteMode:modeId,pastePhase:'committing'};area.setAttribute('data-genie-paste-mode',modeId);return context;}

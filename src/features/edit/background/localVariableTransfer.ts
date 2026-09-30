@@ -75,19 +75,24 @@ export function localVariableTransfer(
     }
     const idle = { logics, apply() {}, rollback() {} };
     if (mode === 'copy' ? !needed.size : !definitions.size) return idle;
-    const jq = read('$') as { divTab(selector: string): { length: number; val(): string } };
+    type Grid = {
+        0?: HTMLTableElement;
+        length: number;
+        val(): string;
+        jqGrid(command: string, ...args: unknown[]): unknown;
+    };
+    const jq = read('$') as { divTab(selector: string): Grid };
     const gridId = read('_variableListGridId_');
     const helper = read('JqGridHelper') as {
         endEdit(grid: unknown): unknown;
-        getGridDataAll(grid: unknown): { data?: LocalVariable[] };
-        addRowData(
+        setRowData(
             grid: unknown,
             rowId: string,
-            row: unknown,
-            position: string,
-            source: string,
+            type: string,
+            data: Record<string, unknown>,
+            useEndEdit: boolean,
         ): unknown;
-        delRowData(grid: unknown, rowId: string): unknown;
+        getGridDataAll(grid: unknown): { data?: LocalVariable[] };
     };
     if (!jq?.divTab || typeof gridId !== 'string' || !helper?.getGridDataAll)
         throw Error('지역변수 목록을 읽을 수 없습니다.');
@@ -119,25 +124,23 @@ export function localVariableTransfer(
         logics[0][key] = [...definitions.values()];
         return idle;
     }
-    const uid = read('uid') as (prefix: string) => string;
     const allocate = read('getTransactionUid') as (
         prefix: string,
         grid: unknown,
         check: string,
     ) => string;
-    const parameterIds = read('variableParameterId') as Map<string, string>;
+    const addRow = read('gridAddBtn') as (gridId: string) => void;
+    const deleteRows = read('gridDelBtn') as (gridId: string) => void;
     if (
         !helper.endEdit ||
-        !helper.addRowData ||
-        !helper.delRowData ||
-        !uid ||
-        !allocate ||
-        !parameterIds?.set ||
-        !parameterIds?.delete
+        typeof helper.setRowData !== 'function' ||
+        typeof addRow !== 'function' ||
+        typeof deleteRows !== 'function' ||
+        typeof allocate !== 'function' ||
+        typeof grid.jqGrid !== 'function' ||
+        !grid[0]
     )
         throw Error('지역변수 추가 기능을 사용할 수 없습니다.');
-    if ([...definitions.values()].some((r) => !!r.dataStructure) && (!structures || !ownerId))
-        throw Error('지역변수 구조 정보를 등록할 수 없습니다.');
     const canonical = (value: unknown): string => {
         if (typeof value === 'string') {
             try {
@@ -159,32 +162,178 @@ export function localVariableTransfer(
         ['dataTypeId', 'dataStructure', 'initYn'].every(
             (f) => canonical(a[f] ?? '') === canonical(b[f] ?? ''),
         );
-    const added: Array<{ rowId: string; id: string; prior: unknown; had: boolean }> = [];
-    let createdBucket = false;
-    const rollback = () => {
-        for (const item of added.reverse()) {
-            helper.delRowData(grid, item.rowId);
-            parameterIds.delete(item.rowId);
-            if (structures?.[ownerId]) {
-                if (item.had) structures[ownerId][item.id] = item.prior;
-                else delete structures[ownerId][item.id];
-            }
+    // Validate the detached clipboard structure without opening its editor.
+    const structureJson = (value: unknown): string => {
+        const parsed = typeof value === 'string' ? JSON.parse(value) : clone(value);
+        const valid = (node: unknown): boolean =>
+            node !== false &&
+            (!node || typeof node !== 'object' || Object.values(node).every(valid));
+        if (
+            !parsed ||
+            typeof parsed !== 'object' ||
+            !parsed.structure ||
+            !parsed.info ||
+            !valid(parsed.structure)
+        )
+            throw Error('지역변수 구조 정의가 올바르지 않습니다. 원본 구조를 확인해 주세요.');
+        return JSON.stringify(parsed);
+    };
+    const getRows = () => {
+        const result = helper.getGridDataAll(grid)?.data;
+        if (!Array.isArray(result)) throw Error('지역변수 목록을 읽을 수 없습니다.');
+        return result;
+    };
+    const checkScope = () => {
+        if (jq.divTab('#' + gridId)[0] !== grid[0] || jq.divTab('#id').val() !== ownerId)
+            throw Error('대상 화면이 변경되었습니다. 다시 시도해 주세요.');
+    };
+    const finishEdit = () => {
+        if (
+            helper.endEdit(grid) === false ||
+            (grid.jqGrid('getGridParam', 'savedRow') as unknown[] | undefined)?.length
+        )
+            throw Error('지역변수 편집을 완료해 주세요.');
+    };
+    const findRow = (rowId: string) => {
+        const row = Array.from(grid[0]!.rows).find((row) => row.id === rowId);
+        if (!row) throw Error('추가한 지역변수 행을 찾을 수 없습니다.');
+        return row;
+    };
+    type SaveCell = (
+        this: unknown,
+        rowId: string,
+        field: string,
+        value: string,
+        row: number,
+        column: number,
+    ) => unknown;
+    const beforeSave = grid.jqGrid('getGridParam', 'beforeSaveCell') as SaveCell;
+    const afterSave = grid.jqGrid('getGridParam', 'afterSaveCell') as SaveCell;
+    const common = read('CommonHelper') as {
+        getStructureDataTypeName(type: string): string;
+        checkReservedWord(value: string): unknown;
+    };
+    const register = (rowId: string, id: string, source: LocalVariable, structure: string) => {
+        checkScope();
+        const columns = grid.jqGrid('getGridParam', 'colModel') as { name: string }[];
+        const column = columns.findIndex((item) => item.name === 'id');
+        const row = findRow(rowId);
+        const previous = getRows().find((item) => item._ID_ === rowId)!;
+        // These native callbacks read the prior ID from savedRow and resolve the
+        // row via this.rows. Supply a detached callback context; never edit the
+        // live grid's savedRow or create an input/Select2 widget.
+        const context = {
+            rows: grid[0]!.rows,
+            p: { savedRow: [{ id: row.rowIndex, ic: column, v: previous.id }] },
+        };
+        const accepted = beforeSave.call(context, rowId, 'id', id, row.rowIndex, column);
+        if (accepted !== undefined && accepted !== id)
+            throw Error(`지역변수 ${id} ID를 적용할 수 없습니다.`);
+        checkScope();
+        helper.setRowData(
+            grid,
+            rowId,
+            '',
+            {
+                id,
+                name: source.name ?? '',
+                dataType: common.getStructureDataTypeName(String(source.dataTypeId)),
+                dataTypeId: source.dataTypeId,
+                dataStructure: structure,
+                initYn: source.initYn ?? '',
+            },
+            false,
+        );
+        // ID completion validates duplicates and owns variableParameterId and
+        // the declared structure map. Apply all fields first so it sees the
+        // final type/structure; no popup completion or type-change UI is needed.
+        for (const field of ['id', 'name', 'initYn']) {
+            checkScope();
+            afterSave.call(
+                grid[0],
+                rowId,
+                field,
+                String(field === 'id' ? id : (source[field] ?? '')),
+                row.rowIndex,
+                columns.findIndex((item) => item.name === field),
+            );
+            if (getRows().find((item) => item._ID_ === rowId)?.id !== id)
+                throw Error(`지역변수 ${id} 설정을 완료하지 못했습니다.`);
         }
+        // Same display rule as Lamp7's loadComplete, scoped to the new row.
+        const cell = Array.from(row.cells).find(
+            (cell) => cell.getAttribute('aria-describedby') === gridId + '_dataStructurePopup',
+        );
+        cell?.classList.add('grid_cell_disable');
+        cell?.querySelectorAll<HTMLElement>('span').forEach((span) => {
+            span.style.display = ['OBJ', 'LIST-OBJ'].includes(String(source.dataTypeId))
+                ? 'block'
+                : 'none';
+        });
+    };
+    const added: string[] = [];
+    const rollback = () => {
+        if (!added.length) return;
+        checkScope();
+        // Cancel any rejected cell edit before using the same delete button route.
+        const saved = grid.jqGrid('getGridParam', 'savedRow') as { id: number; ic: number }[];
+        for (const cell of [...(saved ?? [])]) grid.jqGrid('restoreCell', cell.id, cell.ic);
+        grid.jqGrid('resetSelection');
+        for (const rowId of added) {
+            if (getRows().some((row) => row._ID_ === rowId))
+                grid.jqGrid('setSelection', rowId, false);
+        }
+        deleteRows(gridId);
+        if (getRows().some((row) => added.includes(String(row._ID_))))
+            throw Error(
+                '추가된 지역변수를 자동으로 취소하지 못했습니다. 변수 목록을 확인해 주세요.',
+            );
         added.length = 0;
-        if (createdBucket && structures && !Object.keys(structures[ownerId]).length)
-            delete structures[ownerId];
-        createdBucket = false;
     };
     return {
         logics,
         rollback,
         apply() {
-            if (helper.endEdit(grid) === false) throw Error('지역변수 편집을 완료해 주세요.');
-            const current = helper.getGridDataAll(grid)?.data;
-            if (!Array.isArray(current)) throw Error('지역변수 목록을 읽을 수 없습니다.');
+            checkScope();
+            finishEdit();
+            const current = getRows();
             const existing = new Map(current.map((r) => [r.id, r]));
             const mapping = new Map<string, string>();
-            let no = Math.max(0, ...current.map((r) => Number(r.no) || 0));
+            const structurePayloads = new Map<string, string>();
+            for (const source of definitions.values()) {
+                const found = existing.get(source.id);
+                if (found && !found.sapFuncTranId && same(source, definition(found))) continue;
+                const columns = grid.jqGrid('getGridParam', 'colModel') as { name: string }[];
+                if (
+                    typeof beforeSave !== 'function' ||
+                    typeof afterSave !== 'function' ||
+                    !common?.getStructureDataTypeName ||
+                    !common?.checkReservedWord ||
+                    !Array.isArray(columns) ||
+                    fields.some((field) => !columns.some((col) => col.name === field))
+                )
+                    throw Error('지역변수 등록 기능을 사용할 수 없습니다.');
+                if (
+                    !/^[a-zA-Z_│][a-zA-Z0-9_│]*$/.test(source.id) ||
+                    (read('_appType_') === 'WEB' && common.checkReservedWord(source.id))
+                )
+                    throw Error(`지역변수 ${source.id} ID를 사용할 수 없습니다.`);
+                if (
+                    !common.getStructureDataTypeName(String(source.dataTypeId)) ||
+                    !['', 'Y'].includes(String(source.initYn ?? ''))
+                )
+                    throw Error(`지역변수 ${source.id}의 유형 또는 선언 값이 올바르지 않습니다.`);
+                if (
+                    ['OBJ', 'LIST-OBJ'].includes(String(source.dataTypeId)) &&
+                    !structures?.[ownerId]
+                )
+                    throw Error('지역변수 구조 등록 기능을 사용할 수 없습니다.');
+                if (source.dataStructure) {
+                    if (!['OBJ', 'LIST-OBJ'].includes(String(source.dataTypeId)))
+                        throw Error(`지역변수 ${source.id}의 유형과 구조가 일치하지 않습니다.`);
+                    structurePayloads.set(source.id, structureJson(source.dataStructure));
+                }
+            }
             try {
                 for (const source of definitions.values()) {
                     const found = existing.get(source.id);
@@ -195,27 +344,28 @@ export function localVariableTransfer(
                     const id = found ? allocate(source.id, grid, source.id) : source.id;
                     if (!id || existing.has(id))
                         throw Error(`지역변수 ${source.id}의 새 ID를 만들 수 없습니다.`);
-                    const rowId = uid('JG');
-                    if (!rowId) throw Error('지역변수 행 ID를 만들 수 없습니다.');
-                    const row: LocalVariable = { ...clone(source), id, no: ++no };
-                    const bucket = structures?.[ownerId];
-                    added.push({
-                        rowId,
-                        id,
-                        prior: bucket?.[id],
-                        had: !!bucket && Object.hasOwn(bucket, id),
-                    });
-                    if (helper.addRowData(grid, rowId, row, '', '') === false)
-                        throw Error(`지역변수 ${id} 추가에 실패했습니다.`);
-                    parameterIds.set(rowId, id);
-                    if (row.dataStructure && structures) {
-                        if (!structures[ownerId]) {
-                            structures[ownerId] = {};
-                            createdBucket = true;
-                        }
-                        structures[ownerId][id] = clone(row.dataStructure);
+                    const before = new Set(getRows().map((row) => row._ID_));
+                    grid.jqGrid('resetSelection');
+                    try {
+                        addRow(gridId);
+                    } finally {
+                        for (const row of getRows())
+                            if (!before.has(row._ID_)) added.push(String(row._ID_));
                     }
-                    existing.set(id, row);
+                    const newRows = getRows().filter((row) => !before.has(row._ID_));
+                    if (newRows.length !== 1 || !newRows[0]._ID_)
+                        throw Error(`지역변수 ${id} 추가에 실패했습니다.`);
+                    const rowId = String(newRows[0]._ID_);
+                    register(rowId, id, source, structurePayloads.get(source.id) ?? '');
+                    const row = getRows().find((row) => row._ID_ === rowId);
+                    if (
+                        !row ||
+                        row.id !== id ||
+                        row.name !== (source.name ?? '') ||
+                        !same(source, definition(row))
+                    )
+                        throw Error(`지역변수 ${id} 설정을 완료하지 못했습니다.`);
+                    existing.set(id, clone(row));
                     mapping.set(source.id, id);
                 }
                 // Update typed references only; literal text and object member keys stay intact.
@@ -230,7 +380,13 @@ export function localVariableTransfer(
                         }
                     });
             } catch (error) {
-                rollback();
+                try {
+                    rollback();
+                } catch (cleanup) {
+                    throw Error(
+                        `${error instanceof Error ? error.message : String(error)} ${cleanup instanceof Error ? cleanup.message : String(cleanup)}`,
+                    );
+                }
                 throw error;
             }
         },

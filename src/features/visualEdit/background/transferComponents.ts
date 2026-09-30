@@ -1,5 +1,5 @@
 import type { readVisualComponents } from '../../visualSearch/background/readComponents';
-import type { visualPasteWrappers, visualPlacement } from '../placement';
+import type { visualPlacement } from '../placement';
 import type { buildSelectionPolicy } from '../policy';
 import type {
     VisualClipboard,
@@ -10,6 +10,7 @@ import type {
     VisualTransferResult,
 } from '../transferTypes';
 import type { transformVisualClipboard } from '../transformClipboard';
+import type { pasteVisualSnapshot, SnapshotPasteModel } from './snapshotPaste';
 
 /** MAIN world. All helper implementations are explicit serialized arguments. */
 export async function transferVisualComponents(
@@ -20,7 +21,7 @@ export async function transferVisualComponents(
         policy: string;
         transform: string;
         placement: string;
-        wrappers: string;
+        snapshotPaste?: string;
     },
 ): Promise<VisualTransferResult> {
     type Model = {
@@ -30,7 +31,7 @@ export async function transferVisualComponents(
         getStyle?(): VisualObject;
         getClasses?(): string[];
         getAttributes?(): VisualObject;
-        setAttributes?(value: VisualObject): void;
+        setAttributes(value: VisualObject): void;
         toJSON?(): VisualObject;
         view?: { getChildrenContainer?(): HTMLElement };
         parent(): Model | undefined;
@@ -729,178 +730,32 @@ export async function transferVisualComponents(
                 } else if (value) cleanNestedBindings(value);
             }
         }
-        const pendingSettings = new Map<string, VisualObject>();
-        for (const n of all)
-            if (n.setting && str(n.attributes.vid))
-                pendingSettings.set(str(n.attributes.vid), n.setting);
-        const dataFor = (n: VisualCopyNode): VisualObject => ({
-            ...n.data,
-            attributes: n.attributes,
-            classes: n.classes,
-            style: n.style,
-            components: n.children.map(dataFor),
-        });
-        const wrappersFor = Function(
-            `return (${sources.wrappers})`,
-        )() as typeof visualPasteWrappers;
-        const plans = prepared.clipboard.roots.map((r) => wrappersFor(r.node, parent.getEl!()!));
-        const wrapperTemplates = plans.map((plan) =>
-            plan.map((spec) => {
-                const block = read('BlockHelper') as Record<
-                    string,
-                    (content: string, classes: string) => string
-                >;
-                const schema = read('componentSetting')?.[`form-${spec.kind}`];
-                const defaults = read('getCompoTypeSettingInfo') as (
-                    schema: unknown,
-                    output: VisualObject,
-                ) => void;
-                const getUid = read('getUid') as (prefix: string, attribute: string) => string;
-                if (
-                    !block?.[spec.kind] ||
-                    !schema ||
-                    typeof defaults !== 'function' ||
-                    typeof getUid !== 'function'
-                )
-                    throw Error(
-                        'Lamp7의 Row·Col 생성 설정에 연결할 수 없습니다. 화면을 새로 연 뒤 시도해 주세요.',
-                    );
-                const template = document.createElement('template');
-                template.innerHTML = block[spec.kind]('', spec.classes);
-                const element = template.content.firstElementChild;
-                if (!element || element.tagName !== 'DIV' || template.content.children.length !== 1)
-                    throw Error('Lamp7의 Row·Col 템플릿을 확인할 수 없습니다.');
-                // Same schema/defaults and ID helpers as createSettingInfo, restricted to NEW
-                // empty wrappers. Reserve the entire copied tree before allocating wrapper IDs.
-                const prefix = str(read('enameAbbr')?.[spec.kind]) || spec.kind;
-                const eid = allocate(getUid(prefix, 'eid'), 'eid');
-                const vid = allocate(getUid('vs', 'vid'), 'vid');
-                const id = allocate(getUid(spec.kind, 'id'), 'id');
-                const setting: VisualObject = {};
-                defaults(schema, setting);
-                setting.id = eid;
-                const search = parent
-                    .getEl?.()
-                    ?.closest('.search-container,.unifiedSearch-container');
-                if (search?.getAttribute('eid')) {
-                    setting.elSearchContainer = search.getAttribute('eid')!;
-                    element.setAttribute('elSearchContainer', String(setting.elSearchContainer));
-                }
-                for (const [key, value] of Object.entries({ id, eid, vid }))
-                    element.setAttribute(key, value);
-                pendingSettings.set(vid, json(setting));
-                return element.outerHTML;
-            }),
-        );
+        if (!sources.snapshotPaste) throw Error('붙여넣기 처리에 연결할 수 없습니다.');
+        const paste = Function(`return (${sources.snapshotPaste})`)() as typeof pasteVisualSnapshot;
         document.dispatchEvent(
             new CustomEvent('genie:visual-edit-delete-mutating', {
                 detail: { modeId: selection.modeId, requestId: selection.requestId },
             }),
         );
         if (!valid()) throw Error('붙여넣기 전에 화면이 변경되었습니다.');
-        bridge.mutating = true;
         ownsMutation = true;
-        const initialChildren = new Set(children(parent));
-        const insertedSettings = new Set<string>(),
-            insertedImages = new Set<string>();
-        try {
-            for (const [id, value] of pendingSettings) {
-                settings[id] = value;
-                insertedSettings.add(id);
-            }
-            if (Object.keys(prepared.clipboard.images).length && !images)
-                throw Error('대상 화면의 이미지 저장소를 찾을 수 없습니다.');
-            for (const [id, value] of Object.entries(prepared.clipboard.images)) {
-                if (images![id] !== undefined) throw Error(`이미지 ID가 이미 사용 중입니다: ${id}`);
-                images![id] = value;
-                insertedImages.add(id);
-            }
-            let index =
-                payload.position === 'inside'
-                    ? children(parent).length
-                    : anchor.index() + (payload.position === 'after' ? 1 : 0);
-            for (const [rootIndex, root] of prepared.clipboard.roots.entries()) {
-                bridge.mutating = false;
-                await report(
-                    `붙여넣는 중 ${rootIndex} / ${prepared.clipboard.roots.length}`,
-                    rootIndex === 0,
-                );
-                bridge.mutating = true;
-                if (!valid()) throw Error('대상 화면이 변경되어 붙여넣기를 중단했습니다.');
-                let destination = parent;
-                let top: Model | undefined;
-                for (const template of wrapperTemplates[rootIndex]) {
-                    const added = destination.append(template, {
-                        at: destination === parent ? index : 0,
-                    });
-                    if (!Array.isArray(added) || added.length !== 1)
-                        throw Error('Row·Col 생성 결과를 확인할 수 없습니다.');
-                    top ??= added[0];
-                    destination = added[0];
-                }
-                const added = destination.append(dataFor(root.node), {
-                    at: destination === parent ? index : 0,
-                });
-                if (!Array.isArray(added) || added.length !== 1)
-                    throw Error('생성 결과를 확인할 수 없습니다.');
-                result.createdIds!.push((top ?? added[0]).cid);
-                index++;
-            }
-            await report(
-                `화면 반영 완료 ${result.createdIds!.length} / ${prepared.clipboard.roots.length}`,
-            );
-        } catch (error) {
-            // Keep actual completed roots; never roll back through hooks that could touch existing data.
-            const present = new Set<string>(),
-                presentEids = new Set<string>();
-            const inspect = (m: Model) => {
-                const a = m.getAttributes?.() ?? (m.get('attributes') as VisualObject);
-                if (str(a?.vid)) present.add(str(a.vid));
-                if (str(a?.eid)) presentEids.add(str(a.eid));
-                children(m).forEach(inspect);
-            };
-            const actual = children(parent).filter((m) => !initialChildren.has(m));
-            result.createdIds = actual.map((m) => m.cid);
-            actual.forEach(inspect);
-            for (const id of insertedSettings) if (!present.has(id)) delete settings[id];
-            for (const id of insertedImages)
-                if (![...presentEids].some((eid) => [eid, eid + '_pre', eid + '_suf'].includes(id)))
-                    delete images![id];
-            // Detach links to roots that failed to insert, exclusively on newly created models.
-            const actualIds = new Set<string>();
-            const collectActual = (m: Model) => {
-                actualIds.add(
-                    str((m.getAttributes?.() ?? (m.get('attributes') as VisualObject))?.id),
-                );
-                children(m).forEach(collectActual);
-            };
-            actual.forEach(collectActual);
-            const surviving = {
-                ...prepared.clipboard,
-                roots: prepared.clipboard.roots.filter((r) =>
-                    actualIds.has(str(r.node.attributes.id)),
-                ),
-            };
-            const repaired = transform(surviving, (id) => id).clipboard;
-            const attributesById = new Map<string, VisualCopyNode>();
-            const collectRepair = (n: VisualCopyNode) => {
-                attributesById.set(str(n.attributes.id), n);
-                n.children.forEach(collectRepair);
-            };
-            repaired.roots.forEach((r) => collectRepair(r.node));
-            const repair = (m: Model) => {
-                const a = m.getAttributes?.() ?? (m.get('attributes') as VisualObject);
-                const n = attributesById.get(str(a?.id));
-                if (n) {
-                    if (n.setting && str(n.attributes.vid))
-                        settings[str(n.attributes.vid)] = n.setting;
-                    m.setAttributes?.(n.attributes);
-                }
-                children(m).forEach(repair);
-            };
-            actual.forEach(repair);
-            throw error;
-        }
+        const index =
+            payload.position === 'inside'
+                ? children(parent).length
+                : anchor.index() + (payload.position === 'after' ? 1 : 0);
+        const outcome = await paste(
+            prepared.clipboard,
+            parent as SnapshotPasteModel,
+            index,
+            valid,
+            report,
+            (active) => {
+                bridge!.mutating = active;
+            },
+            sources.transform,
+        );
+        result.createdIds = outcome.createdIds;
+        result.error = outcome.error;
         return result;
     } catch (error) {
         result.error =

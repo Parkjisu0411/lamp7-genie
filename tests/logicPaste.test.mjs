@@ -13,24 +13,22 @@ const base=[{id:'tranA',type:'transaction',transaction:{id:'A'}},{id:'condition'
 const copy=(id='copy',type='transaction',extra={})=>({id,type,seq:10,transaction:{id:'B'},...extra});
 const setup=()=>{const t=logicHarness();t.seed(base);return t;};
 
-test('native paste rendering treats absent grids as empty and restores the reader after completion',()=>{
+test('native paste never replaces the grid reader, including when Lamp7 cannot render an absent grid',()=>{
     const t=setup(),rows=[{id:'local1',name:'Local'}];
     let realReads=0;
     const original=function(grid){realReads++;return {data:grid.length?rows:{}};};
-    t.env.JqGridHelper={getGridDataAll:original};
+    t.env.JqGridHelper=new Proxy({getGridDataAll:original},{set(){throw Error('global replacement forbidden');}});
     const render=t.renderer.renderLogics;
     t.renderer.renderLogics=function(items){
-        assert.equal(t.env.JqGridHelper.getGridDataAll({length:0}).data.find(()=>true),undefined);
-        assert.deepEqual(t.env.JqGridHelper.getGridDataAll(null).data,[]);
-        assert.equal(t.env.JqGridHelper.getGridDataAll({length:1}).data,rows);
+        t.env.JqGridHelper.getGridDataAll({length:0}).data.find(()=>true);
         return render.call(this,items);
     };
     const result=t.paste([copy()]);
-    assert.equal(result.setupError,undefined);assert.equal(result.createdCount,1);
+    assert.match(result.setupError,/find is not a function/);assert.equal(result.createdCount,1);
     assert.equal(realReads,1);assert.equal(t.env.JqGridHelper.getGridDataAll,original);
 });
 
-test('temporary absent-grid adapter is restored on native rendering failure and stale target',()=>{
+test('native grid reader remains untouched on rendering failure and stale target',()=>{
     const t=setup();const original=()=>({data:{invalid:'real grid data'}});
     t.env.JqGridHelper={getGridDataAll:original};
     t.renderer.renderLogics=()=>{t.env.JqGridHelper.getGridDataAll({length:1}).data.find(()=>true);};
@@ -45,6 +43,29 @@ test('temporary absent-grid adapter is restored on native rendering failure and 
 function assertAfter(t){const res=t.paste([copy()],{anchorId:'tranA',position:'after'});assert.equal(res.createdCount,1);assert.equal(res.setupError,undefined);assert.deepEqual(t.editor.getAll().map(l=>l.id),['tranA','new1','condition','child','next','nextChild']);assert.equal(t.logics.get('condition').parentTranId,'B');assert.equal(t.logics.get('condition').condition.parentTranId,'B');assert.equal(t.logics.get('child').parentTranId,'B');assert.equal(t.logics.get('nextChild').parentTranId,'B');assert.ok(t.validated.includes('nextChild'));assert.ok(t.connects>1);}
 
 test('sibling paste recalculates downstream existing transaction links and validates descendants',()=>assertAfter(setup()));
+test('paste orders through native sortable lifecycle without a direct extension DOM move',()=>{const t=setup();const result=t.paste([copy()],{anchorId:'tranA',position:'after'});assert.equal(result.setupError,undefined);assert.equal(t.calls.nativeStart,1);assert.equal(t.calls.nativeEnd,1);assert.deepEqual(t.area.children.map(n=>n.id),['tranA','new1','condition','next']);assert.doesNotMatch(pasteCopiedLogicsInMainWorld.toString(),/insertBefore|Object\.create\(renderer\)|getGridDataAll\s*=/);});
+test('missing native movement APIs fail before creating or consuming the paste ticket',()=>{
+    for(const key of ['Sortable','LogicEventHandler']) {
+        const t=setup(), context=t.start();delete t.env[key];
+        const r=t.paste([copy()],{anchorId:'',position:'root-end'},context);
+        assert.match(r.setupError,/기본 로직 이동/);assert.equal(r.createdCount,0);assert.equal(t.calls.create,0);
+        assert.equal(t.host.dataset.pastePhase,'committing');
+    }
+});
+test('native sorting failure restores temporary keys and the original Sortable option',()=>{
+    for(const stage of ['sort','onEnd']) {
+        const t=setup(),sortable=t.env.Sortable.get(t.area);
+        t.area.children[0].setAttribute('data-genie-sort-key','prior');
+        t.env.Sortable.get=()=>sortable;
+        if(stage==='sort') sortable.sort=()=>{throw Error('native failure');};
+        else sortable.options.onEnd=()=>{throw Error('native failure');};
+        const r=t.paste([copy()],{anchorId:'tranA',position:'after'});
+        assert.match(r.setupError,/native failure/);assert.equal(r.createdCount,1);
+        assert.equal(sortable.option('dataIdAttr'),'data-id');
+        assert.equal(t.nodes.get('tranA').getAttribute('data-genie-sort-key'),'prior');
+        for(const item of t.area.children.filter(n=>n.id!=='tranA')) assert.equal(item.getAttribute('data-genie-sort-key'),null);
+    }
+});
 test('inside paste appends to existing children, remaps copied forest, and keeps the input snapshot intact',()=>{const t=setup();const copied=[copy('nested','variable',{parentId:'group',seq:12,variable:{value:'original'}}),copy('group','condition',{seq:11,condition:{prefix:'if'}}),copy('last','event',{seq:13})];const before=structuredClone(copied);const r=t.paste(copied,{anchorId:'condition',position:'inside'});assert.equal(r.createdCount,3);assert.deepEqual(t.nodes.get('condition_processLogic').children.map(n=>n.id),['child','new1','new3']);assert.equal(t.logics.get('new2').parentId,'new1');assert.equal(t.logics.get('new2').lvl,2);assert.equal(t.logics.get('new1').parentTranId,'A');assert.equal(t.logics.get('condition').expanded,true);assert.ok(t.validated.includes('child'));assert.deepEqual(copied,before);});
 test('after a parent means after the whole subtree at the same level',()=>{const t=setup();t.paste([copy()],{anchorId:'condition',position:'after'});assert.deepEqual(t.area.children.map(n=>n.id),['tranA','condition','new1','next']);assert.equal(t.logics.get('new1').parentId,'');});
 test('after a child retains its parent and root-start works in an empty editor',()=>{const t=setup();t.paste([copy()],{anchorId:'child',position:'after'});assert.equal(t.logics.get('new1').parentId,'condition');const empty=logicHarness();assert.equal(empty.paste([copy()],{anchorId:'',position:'root-start'}).createdCount,1);});
@@ -59,6 +80,22 @@ test('MAIN functions survive serialization without imported runtime references',
 test('pointer distinguishes parent header interior, lower edge, leaf, blank root and outside',()=>{const clip={left:0,top:0,width:800,height:600};const rows=[{id:'p',canNest:true,head:{left:50,top:50,width:700,height:40},body:{left:50,top:50,width:700,height:200}},{id:'c',canNest:false,head:{left:80,top:90,width:670,height:40},body:{left:80,top:90,width:670,height:40}}];assert.equal(pickLogicPasteLocation(rows,clip,300,65).location.position,'inside');assert.equal(pickLogicPasteLocation(rows,clip,300,85).location.position,'after');assert.equal(pickLogicPasteLocation(rows,clip,300,100).location.anchorId,'c');assert.equal(pickLogicPasteLocation(rows,clip,300,350).location.position,'root-end');assert.equal(pickLogicPasteLocation(rows,clip,300,30).location.position,'root-start');assert.equal(pickLogicPasteLocation(rows,clip,900,60),null);});
 
 const nativeDir=process.env.LAMP7_LOGIC_SOURCE_DIR||'D:/02.Workspace/studio_cloud/studio/src/main/resources/static/js/screen/event/logic';
+test('local Lamp7 actual Sortable callbacks recalculate and validate the pasted neighbors', {skip:!existsSync(nativeDir+'/logicEventHandler.js')},()=>{
+    const t=setup(),source=ts.createSourceFile('logicEventHandler.js',readFileSync(nativeDir+'/logicEventHandler.js','utf8'),ts.ScriptTarget.Latest,true);
+    const method=source.statements.find(ts.isClassDeclaration).members.find(m=>m.name?.getText(source)==='setLogicBlockNestedSortable').getText(source);
+    const instances=new Map(),originalGet=t.env.Sortable.get;
+    class Sortable {
+        constructor(container,options){const api=originalGet(container);Object.assign(this,api,{options});instances.set(container,this);}
+        static get(container){return instances.get(container);}
+    }
+    const jq=value=>({...t.env.$(value),attr:name=>value.getAttribute(name)||value[name]});
+    jq.divTab=selector=>selector==='.nested-sortable'?[t.area,...[...t.nodes.values()].filter(n=>n.id.endsWith('_processLogic'))]:t.env.$.divTab(selector);
+    const env={...t.env,$:jq,Sortable};
+    const handler=vm.runInNewContext('class LogicEventHandler { '+method+' }; LogicEventHandler',env);
+    t.env.Sortable=Sortable;t.env.LogicEventHandler=handler;
+    assertAfter(t);
+    assert.ok(t.validated.includes('new1'));
+});
 test('local Lamp7 actual resetLogicLevelAndSeqAll/getParentTranId update existing native fields', {skip:!existsSync(nativeDir+'/logicEditor.js')},()=>{
     const t=setup();
     const method=(file,name)=>{const source=ts.createSourceFile(file,readFileSync(nativeDir+'/'+file,'utf8'),ts.ScriptTarget.Latest,true);return source.statements.find(ts.isClassDeclaration).members.find(m=>m.name?.getText(source)===name).getText(source);};
