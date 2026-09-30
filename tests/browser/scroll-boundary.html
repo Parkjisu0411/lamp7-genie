@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<title>검색 스크롤 범위 회귀 검증</title>
+<style>
+html,body{height:100%;margin:0;overflow:hidden;font:14px/1.5 sans-serif}
+#screen{height:100%}header{height:60px;box-sizing:border-box;padding:12px;background:#f1f5f9}
+iframe{display:block;border:0;width:100%;height:calc(100% - 60px)}
+#tail{height:152px}button{margin-left:12px;cursor:pointer}
+#checks{position:fixed;right:16px;top:140px;width:320px;background:white;border:1px solid #ccc;padding:12px;white-space:pre-wrap;z-index:10}
+</style>
+<div id="screen"><header>검색 스크롤 회귀 검증 · 합성 화면
+<button id="old">기존 문제 재현</button><button id="verify">수정 동작 검증</button></header>
+<iframe id="editor" title="합성 편집 화면" src="./scroll-boundary-frame.html"></iframe></div>
+<div id="tail"></div><pre id="checks">검증 준비 중…</pre>
+<script>
+const editor=document.querySelector('#editor');
+document.querySelector('#old').onclick=()=>editor.contentWindow.postMessage('old',location.origin);
+document.querySelector('#verify').onclick=()=>editor.contentWindow.postMessage('verify',location.origin);
+window.addEventListener('message',e=>{if(e.source===editor.contentWindow&&e.data?.checks)document.querySelector('#checks').textContent=e.data.checks});
+</script>
+</html>

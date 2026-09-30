@@ -4,6 +4,7 @@ import {
     HIGHLIGHT_CLASS,
     HIGHLIGHT_STYLE_ID,
 } from '../../shared/constants';
+import { scrollWithin } from '../../shared/scrollWithin';
 import type { SearchMatch } from '../../shared/types/messages';
 
 // ISOLATED world(content script)에서 돌아감.
@@ -29,9 +30,7 @@ function injectStyles() {
 }
 
 function queryById(id: string): HTMLElement | null {
-    return document.querySelector<HTMLElement>(
-        `[${DATA_ATTR_TARGET_ID}="${CSS.escape(id)}"]`,
-    );
+    return document.querySelector<HTMLElement>(`[${DATA_ATTR_TARGET_ID}="${CSS.escape(id)}"]`);
 }
 
 export function applyHighlights(matches: SearchMatch[]) {
@@ -72,5 +71,5 @@ export function activateHighlightById(id: string) {
     const target = queryById(id);
     if (!target) return;
     target.classList.add(HIGHLIGHT_ACTIVE_CLASS);
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    scrollWithin(target, target.ownerDocument.body);
 }

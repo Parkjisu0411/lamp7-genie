@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronUp, EyeOff, Search, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import { scrollWithin } from '../../shared/scrollWithin';
 import type { VisualSearchFilters } from './types';
 import { useVisualSearch, type VisualSearchPanelProps } from './useVisualSearch';
 
@@ -26,9 +27,9 @@ export function VisualSearchPanel(props: VisualSearchPanelProps) {
     } = useVisualSearch(props);
     const resultList = useRef<HTMLUListElement>(null);
     useEffect(() => {
-        resultList.current
-            ?.querySelector('[aria-current="true"]')
-            ?.scrollIntoView({ block: 'nearest' });
+        const active = resultList.current?.querySelector<HTMLElement>('[aria-current="true"]');
+        const viewport = resultList.current?.closest<HTMLElement>('.panel__results');
+        if (active && viewport) scrollWithin(active, viewport, 'nearest');
     }, [result.activeId]);
     return (
         <div className="panel panel--visual-search">

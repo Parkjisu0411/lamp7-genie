@@ -8,6 +8,7 @@ import { dependencyMarkup, dependencySettings } from './visual-dependencies-data
 import { transferVisualComponents } from '../../src/features/visualEdit/background/transferComponents';
 import { transformVisualClipboard } from '../../src/features/visualEdit/transformClipboard';
 import { visualPlacement } from '../../src/features/visualEdit/placement';
+import { explainVisualPlacementFailure } from '../../src/features/visualEdit/placementFailure';
 const frame = document.querySelector('.gjs-frame');
 const gridFixture = new URLSearchParams(location.search).has('grid');
 const dependencyFixture = new URLSearchParams(location.search).has('dependencies');
@@ -222,5 +223,5 @@ window.fixtureNativePaste = async (clipboard, parent, at, valid, progress, mutat
     } catch(error) {return {createdIds,error:error.message};}
     finally {mutation(false);}
 };
-function transferSources() {return {progress:publishPasteProgress.toString(),reader:readVisualComponents.toString(),policy:buildSelectionPolicy.toString(),transform:transformVisualClipboard.toString(),placement:visualPlacement.toString(),snapshotPaste:'async (...args) => fixtureNativePaste(...args)'};}
+function transferSources() {return {progress:publishPasteProgress.toString(),reader:readVisualComponents.toString(),policy:buildSelectionPolicy.toString(),transform:transformVisualClipboard.toString(),placement:visualPlacement.toString(),placementFailure:explainVisualPlacementFailure.toString(),snapshotPaste:'async (...args) => fixtureNativePaste(...args)'};}
 parent.postMessage({ fixture: 'visual-edit-ready' }, location.origin);

@@ -5,6 +5,7 @@ import { transformVisualClipboard } from '../src/features/visualEdit/transformCl
 import { transferVisualComponents } from '../src/features/visualEdit/background/transferComponents.ts';
 import { pasteVisualSnapshot } from '../src/features/visualEdit/background/snapshotPaste.ts';
 import { visualPlacement } from '../src/features/visualEdit/placement.ts';
+import { explainVisualPlacementFailure } from '../src/features/visualEdit/placementFailure.ts';
 import { placementDocument } from './fixtures/placementDom.mjs';
 import { buildSelectionPolicy } from '../src/features/visualEdit/policy.ts';
 import { watchVisualSelection } from '../src/features/visualEdit/background/watchSelection.ts';
@@ -257,7 +258,7 @@ function fixture(options={}) {
         return selection;
     };
     const run=async payload=>JSON.parse(JSON.stringify(await vm.runInContext(`(${transferVisualComponents.toString()})(payload,sources)`,Object.assign(context,{payload,
-        sources:{snapshotPaste:options.realPaste?pasteVisualSnapshot.toString():'async function(...args){return nativeDelegate(...args);}',progress:options.progress ? 'async function(mode,request,text){await onProgress(mode,request,text);}' : undefined,reader:'function(){return snapshot();}',policy:buildSelectionPolicy.toString(),transform:transformVisualClipboard.toString(),placement:visualPlacement.toString()}}))));
+        sources:{snapshotPaste:options.realPaste?pasteVisualSnapshot.toString():'async function(...args){return nativeDelegate(...args);}',progress:options.progress ? 'async function(mode,request,text){await onProgress(mode,request,text);}' : undefined,reader:'function(){return snapshot();}',policy:buildSelectionPolicy.toString(),transform:transformVisualClipboard.toString(),placement:visualPlacement.toString(),placementFailure:explainVisualPlacementFailure.toString()}}))));
     return {run,arm,root,wrapper,walk,settings,images,eventData,calls,idCalls,stats,context,window,frame,document,CustomEvent,delegated};
 }
 
@@ -333,9 +334,81 @@ test('disjoint individual destinations explain no common location; no subset is 
     const data=clipboard(node('a'),node('b'));
     data.roots[0].placement.draggable='.slot-a';data.roots[1].placement.draggable='.slot-b';
     const before=JSON.stringify(f.settings);
-    assert.match((await f.run({action:'targets',clipboard:data})).error,/공통 위치/);
+    const message=(await f.run({action:'targets',clipboard:data})).error;
+    assert.match(message,/공통 위치/);
+    assert.match(message,/a → Col a-slot/);
+    assert.match(message,/b → Col b-slot/);
+    assert.doesNotMatch(message,/\.slot/);
     assert.ok((await f.run({action:'paste',selection:f.arm('paste',[f.root.get('components').models[0]]),clipboard:data,position:'inside'})).error);
     assert.equal(f.calls.length,0);assert.equal(JSON.stringify(f.settings),before);
+});
+
+test('mixed ordinary Rows and search-only Cols name the restricted copied items without changing placement',async()=>{
+    const f=fixture({children:[node('search-row',{classes:['form-row','search-row','search-form-wrapper'],data:{type:'search-inner-div',droppable:true}})]});
+    const ids=['col9','col341','col361','col371'];
+    const searchCols=ids.map((id,index)=>node(id,{
+        classes:['form-col','search-col','search-col-add'],data:{type:'search-inner-div'},
+        children:index%2===0?[node('label-'+id,{classes:['col-form-label'],data:{type:'label'},setting:{name:index===0?'프로젝트코드':'양산예정일자'}})]:[],
+    }));
+    const data=clipboard(...Array.from({length:18},(_,i)=>node('ordinary'+i)),...searchCols);
+    data.roots.slice(18).forEach(root=>{root.type='Col';root.placement.draggable='.search-form-wrapper,.search-row-add,.container-content.search-col-add';});
+    const before=JSON.stringify({data,settings:f.settings});
+    const result=await f.run({action:'targets',clipboard:data});
+    assert.match(result.error,/공통 위치/);
+    assert.match(result.error,/프로젝트코드 \(col9\)/);
+    assert.match(result.error,/양산예정일자 \(col361\)/);
+    for(const id of ids)assert.ok(result.error.includes(id));
+    assert.match(result.error,/검색영역 안에만/);
+    assert.match(result.error,/나누어 복사/);
+    assert.doesNotMatch(result.error,/ordinary|search-inner-div|form-wrapper/);
+    assert.ok(result.targets.every(t=>!t.positions.length));
+    assert.equal(JSON.stringify({data,settings:f.settings}),before);
+    assert.equal(f.calls.length,0);assert.equal(f.idCalls.length,0);assert.equal(f.stats.sessionRequests,undefined);
+    const searchOnly={...data,roots:data.roots.slice(18)};
+    assert.equal((await f.run({action:'targets',clipboard:searchOnly})).error,undefined);
+});
+
+test('missing search receiver and long restricted lists give compact actionable messages',async()=>{
+    const data=clipboard(...Array.from({length:7},(_,i)=>node('searchCol'+i,{classes:['form-col','search-col-add']})));
+    data.roots.forEach(root=>{root.type='Col';root.placement.draggable=['.search-form-wrapper','.search-row-add'];});
+    const result=await fixture().run({action:'targets',clipboard:data});
+    assert.match(result.error,/붙여넣을 수 있는 검색영역이 없습니다/);
+    assert.match(result.error,/searchCol0, searchCol1, searchCol2, searchCol3 외 3개/);
+    assert.match(result.error,/편집 가능한 검색영역/);
+    assert.doesNotMatch(result.error,/나누어 복사/);
+});
+
+test('batch-only Repeat restriction reports the Row rule rather than incompatible individual destinations',async()=>{
+    const f=fixture({droppable:false,children:[node('target-row',{classes:['form-row'],data:{type:'row',droppable:true}})]});
+    const data=clipboard(node('repeat',{classes:['default-container','repeat-container']}),node('ordinary',{classes:['default-container']}));
+    data.roots.forEach(root=>root.placement.draggable='.form-row');
+    for(const root of data.roots)assert.equal((await f.run({action:'targets',clipboard:{...data,roots:[root]}})).error,undefined);
+    const result=await f.run({action:'targets',clipboard:data});
+    assert.match(result.error,/repeat, ordinary/);
+    assert.match(result.error,/반복컨테이너와 다른 컨테이너는 같은 Row/);
+    assert.equal(f.calls.length,0);
+});
+
+test('specific native restrictions and locked destinations report their real cause',async()=>{
+    for(const [classes,expected] of [[['default-container','repeat-container'],/반복컨테이너 안에는 반복컨테이너/],[['comment-container'],/댓글은 반복컨테이너/]]){
+        const f=fixture({droppable:false,children:[node('repeat-target',{classes:['default-container','repeat-container','container-content'],data:{type:'col',droppable:true}})]});
+        const data=clipboard(node('blocked',{classes}));data.roots[0].placement.draggable='.repeat-container';
+        const message=(await f.run({action:'targets',clipboard:data})).error;
+        assert.match(message,/blocked/);assert.match(message,expected);assert.equal(f.calls.length,0);
+    }
+    const locked=await fixture({droppable:false}).run({action:'targets',clipboard:clipboard(node('locked-row'))});
+    assert.match(locked.error,/locked-row/);assert.match(locked.error,/내부 항목 추가를 허용하지 않습니다/);
+    const orphan=clipboard(node('child',{classes:['cascader-item'],data:{type:'cascader-item'}}));
+    assert.match((await fixture().run({action:'targets',clipboard:orphan})).error,/Cascader 전체/);
+});
+
+test('search-looking classes never override a permitted source rule or change its restriction',async()=>{
+    const f=fixture();
+    const data=clipboard(node('normal'),node('search-looking',{classes:['form-col','search-col-add']}));
+    data.roots[1].placement.draggable='.container-fluid,.container-content:not(.search-col)';
+    const result=await f.run({action:'targets',clipboard:data});
+    assert.equal(result.error,undefined);
+    assert.ok(result.targets.find(t=>t.modelId===f.root.cid).positions.includes('inside'));
 });
 
 test('dynamic root locks and non-selectable ID-less content receivers are independent of selection policy',async()=>{

@@ -265,6 +265,7 @@
     flex: 1;
     min-width: 0;
     overflow-wrap: anywhere;
+    white-space: pre-line;
 }
 
 .panel-notice__close {

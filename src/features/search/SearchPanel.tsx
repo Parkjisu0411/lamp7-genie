@@ -2,6 +2,7 @@ import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { KIND_ICON } from '../../shared/icons';
 import type { NotifyPanel } from '../../shared/panelNotice';
+import { scrollWithin } from '../../shared/scrollWithin';
 import type { SearchMatch, SearchMatchField } from '../../shared/types/messages';
 import { useSearchPanel, type FilterKey } from './useSearchPanel';
 
@@ -80,9 +81,9 @@ export function SearchPanel(props: SearchPanelProps) {
     } = useSearchPanel(props);
     const resultList = useRef<HTMLUListElement>(null);
     useEffect(() => {
-        resultList.current
-            ?.querySelector('[aria-current="true"]')
-            ?.scrollIntoView({ block: 'nearest' });
+        const active = resultList.current?.querySelector<HTMLElement>('[aria-current="true"]');
+        const viewport = resultList.current?.closest<HTMLElement>('.panel__results');
+        if (active && viewport) scrollWithin(active, viewport, 'nearest');
     }, [currentIndex, matches]);
 
     return (

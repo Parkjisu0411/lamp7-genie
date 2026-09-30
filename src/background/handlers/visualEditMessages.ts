@@ -4,6 +4,7 @@ import { transferVisualComponents } from '../../features/visualEdit/background/t
 import { watchVisualSelection } from '../../features/visualEdit/background/watchSelection';
 import { getVisualClipboard, setVisualClipboard } from '../../features/visualEdit/clipboard';
 import { visualPlacement } from '../../features/visualEdit/placement';
+import { explainVisualPlacementFailure } from '../../features/visualEdit/placementFailure';
 import { buildSelectionPolicy } from '../../features/visualEdit/policy';
 import type { VisualClipboard } from '../../features/visualEdit/transferTypes';
 import { transformVisualClipboard } from '../../features/visualEdit/transformClipboard';
@@ -385,6 +386,7 @@ function transferSources() {
         policy: buildSelectionPolicy.toString(),
         transform: transformVisualClipboard.toString(),
         placement: visualPlacement.toString(),
+        placementFailure: explainVisualPlacementFailure.toString(),
         snapshotPaste: pasteVisualSnapshot.toString(),
     };
 }

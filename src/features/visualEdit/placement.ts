@@ -1,10 +1,27 @@
 import type { VisualClipboard, VisualCopyNode, VisualPastePosition } from './transferTypes';
 
-interface PlacementModel {
+export interface PlacementModel {
     get(key: string): unknown;
     getEl?(): HTMLElement | undefined;
     parent?(): PlacementModel | undefined;
     index?(): number;
+}
+
+export interface VisualPlacementIssue {
+    code:
+        | 'unavailable'
+        | 'dependent'
+        | 'cascader-child'
+        | 'source-rule'
+        | 'target-locked'
+        | 'target-rule'
+        | 'repeat-row'
+        | 'nested-repeat'
+        | 'repeat-comment'
+        | 'search-first-row'
+        | 'search-input'
+        | 'linked-form';
+    rootKeys: string[];
 }
 
 /** MAIN-safe. GrapesJS 0.14.66 validTarget plus Lamp7's read-only drop guards. */
@@ -13,11 +30,16 @@ export function visualPlacement(
     target: PlacementModel | undefined,
     position: VisualPastePosition,
     probes?: Map<VisualCopyNode, HTMLElement>,
+    issues?: VisualPlacementIssue[],
 ): boolean {
+    const fail = (code: VisualPlacementIssue['code'], items = roots): false => {
+        issues?.push({ code, rootKeys: items.map((root) => root.node.key) });
+        return false;
+    };
     const parent = position === 'inside' ? target : target?.parent?.();
     const el = parent?.getEl?.();
     if (!roots.length || !parent || !el?.isConnected || !el.classList || !parent.get('components'))
-        return false;
+        return fail('unavailable');
     // These structures are edited as a whole by Genie. Native grid-cell moves also rebuild
     // repeated rows, so direct append into one physical cell is not a valid clipboard operation.
     if (
@@ -25,7 +47,7 @@ export function visualPlacement(
             '.grid-compo,.tree-container,.manual-tree-container,.duration-date-compo,.dataselect-compo,.inputgroup-compo,.radio-compo,.checkbox-compo,.dropdown-compo,.cascader-compo,.cascader-container,.cascader-list,.cascader-item,.cascader-select,.repeat-radio-compo,.repeat-checkbox-compo',
         )
     )
-        return false;
+        return fail('dependent');
     const match = (element: Element, rule: unknown) => {
         if (Array.isArray(rule)) rule = rule.join(', ');
         if (typeof rule !== 'string') return !!rule;
@@ -59,7 +81,12 @@ export function visualPlacement(
             })),
         ];
         if (containers.filter((c) => c.container).length > 1 && containers.some((c) => c.repeat))
-            return false;
+            return fail(
+                'repeat-row',
+                roots.filter(
+                    (r) => has(r.node, 'default-container') || has(r.node, 'repeat-container'),
+                ),
+            );
     }
     return roots.every((root) => {
         const n = root.node;
@@ -76,9 +103,9 @@ export function visualPlacement(
                 has(n, c),
             )
         )
-            return false;
+            return fail('cascader-child', [root]);
         const draggable = root.placement?.draggable;
-        if (!match(el, draggable)) return false;
+        if (!match(el, draggable)) return fail('source-rule', [root]);
         // Detached DOM is only a CSS-selector probe, never an editor model or live canvas node.
         let probe = probes?.get(n);
         if (!probe) {
@@ -103,27 +130,27 @@ export function visualPlacement(
             !(root.placement?.textable && parent.get('type') === 'text') &&
             !match(probe, droppable)
         )
-            return false;
+            return fail(droppable === false ? 'target-locked' : 'target-rule', [root]);
         if (
             repeat &&
             (((has(n, 'repeat-container') || has(n, 'default-container') || has(n, 'form-row')) &&
                 includes(n, 'repeat-container')) ||
                 has(n, 'comment-container'))
         )
-            return false;
+            return fail(has(n, 'comment-container') ? 'repeat-comment' : 'nested-repeat', [root]);
         if (has(n, 'form-row') && el.classList.contains('search-container')) {
             const index =
                 position === 'inside'
                     ? children.length
                     : (target?.index?.() ?? children.indexOf(target!)) +
                       (position === 'after' ? 1 : 0);
-            if (index === 0) return false;
+            if (index === 0) return fail('search-first-row', [root]);
         }
         if (
             has(n, 'input-search-compo') &&
             el.closest('.search-container,.unifiedSearch-container,.grid-compo')
         )
-            return false;
+            return fail('search-input', [root]);
         if (n.attributes.layoutkey) {
             const searchForm =
                 [
@@ -169,7 +196,7 @@ export function visualPlacement(
                 ((parent.get('type') === 'search-inner-div' && !searchForm) ||
                     (el.classList.contains('tab-name') && !inner))
             )
-                return false;
+                return fail('linked-form', [root]);
         }
         return true;
     });

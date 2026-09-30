@@ -1,5 +1,6 @@
 import { DATA_ATTR_LOGIC_AREA_PIN } from '../../shared/constants';
 import { sendRuntimeMessageQuietly } from '../../shared/messaging';
+import { scrollWithin } from '../../shared/scrollWithin';
 import { selectionOverlayStyles } from '../../shared/selectionOverlay';
 import { intersectRect, type Rect } from '../visualSearch/geometry';
 import { collectSameOriginDocuments, findEditDom, resyncEditSeqItems } from './dom';
@@ -430,7 +431,7 @@ export function mountEdit(paste?: LogicPasteContext): boolean {
     // A scroll position can hide an intact editor. Reveal it before rejecting
     // the mode; collapsed split panes remain under the user's control.
     if (!clipFor(dom.wrap)) {
-        dom.wrap.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
+        scrollWithin(dom.wrap, doc.body, 'nearest');
     }
     paint();
     if (disposed) return false;

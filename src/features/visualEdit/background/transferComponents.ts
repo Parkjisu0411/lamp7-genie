@@ -1,5 +1,6 @@
 import type { readVisualComponents } from '../../visualSearch/background/readComponents';
 import type { visualPlacement } from '../placement';
+import type { explainVisualPlacementFailure } from '../placementFailure';
 import type { buildSelectionPolicy } from '../policy';
 import type {
     VisualClipboard,
@@ -21,6 +22,7 @@ export async function transferVisualComponents(
         policy: string;
         transform: string;
         placement: string;
+        placementFailure: string;
         snapshotPaste?: string;
     },
 ): Promise<VisualTransferResult> {
@@ -230,18 +232,19 @@ export async function transferVisualComponents(
                     })(),
                 }));
             if (!result.targets.some((t) => t.positions.length)) {
-                const individuallyBlocked = clipboard!.roots.filter(
-                    (root) =>
-                        !snapshot.records.some(
-                            (r) =>
-                                r.rendered &&
-                                !r.hidden &&
-                                place([root], byId.get(r.location.modelId), 'inside'),
-                        ),
-                );
-                result.error = individuallyBlocked.length
-                    ? `현재 화면에 ${individuallyBlocked.map((r) => r.label || r.eid || r.type).join(', ')}을(를) 넣을 수 있는 위치가 없습니다. Lamp7의 드롭 제한 또는 잠긴 컨테이너를 확인해 주세요.`
-                    : '각 항목은 배치할 수 있지만 모두 함께 들어갈 공통 위치가 없습니다. 항목을 나누어 복사해 주세요.';
+                const explain = Function(
+                    `return (${sources.placementFailure})`,
+                )() as typeof explainVisualPlacementFailure;
+                const candidates = result.targets.flatMap((target) => {
+                    const model = byId.get(target.modelId);
+                    return model
+                        ? (['inside', 'before', 'after'] as const).map((position) => ({
+                              model,
+                              position,
+                          }))
+                        : [];
+                });
+                result.error = explain(clipboard!.roots, candidates, placement, probes);
             }
             return result;
         }

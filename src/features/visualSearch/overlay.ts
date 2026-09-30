@@ -1,4 +1,5 @@
 import { sendRuntimeMessageQuietly } from '../../shared/messaging';
+import { scrollWithin } from '../../shared/scrollWithin';
 import { intersectRect, projectCanvasRect, type Rect } from './geometry';
 import type { VisualLocation, VisualPresentation } from './types';
 
@@ -270,8 +271,8 @@ function createOverlaySession(sessionId: string) {
                 dirty();
                 return '현재 표시 위치를 찾을 수 없습니다. 검색 결과를 갱신합니다.';
             }
-            // Scrolling changes viewport only; never select a component or toggle its hidden state.
-            el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+            // Stay within the canvas document; native scrollIntoView also scrolls its parent frames.
+            scrollWithin(el, el.ownerDocument);
         },
     };
 }
